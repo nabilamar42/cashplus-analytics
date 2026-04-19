@@ -14,6 +14,7 @@ import pandas as pd
 
 from adapters.duckdb_repo import DuckDBRepo
 from services.import_service import importer_rapport_solde
+from services.company_service import build_companies_table, kpis_companies
 
 DB_PATH = str(ROOT / "data" / "cashplus.db")
 
@@ -30,8 +31,10 @@ con = repo.con()
 
 st.title("📥 Import / Exports")
 
-tab_imp, tab_hist, tab_exp = st.tabs(["Importer rapport solde", "Historique",
-                                       "Exports consolidés"])
+tab_imp, tab_hist, tab_co, tab_exp = st.tabs([
+    "Importer rapport solde", "Historique",
+    "🏢 Companies", "Exports consolidés",
+])
 
 with tab_imp:
     st.markdown("""
@@ -50,7 +53,8 @@ with tab_imp:
         try:
             r = importer_rapport_solde(repo, tmp_path, snapshot=snap.isoformat())
             st.success(f"✅ {r['lignes_importees']} lignes importées "
-                       f"(snapshot {r['snapshot_date']})")
+                       f"(snapshot {r['snapshot_date']}) — "
+                       f"🏢 {r['companies_rebuilt']} companies ré-agrégées")
             st.cache_data.clear()
         except Exception as e:
             st.error(f"Erreur : {e}")
@@ -76,6 +80,47 @@ with tab_hist:
     })
     st.dataframe(hist, hide_index=True, use_container_width=True)
 
+with tab_co:
+    st.markdown("""
+    La table **Companies** est automatiquement ré-agrégée après chaque import
+    (rapport solde, base agences, conformité). Tu peux également forcer un
+    rebuild manuel ici si tu as modifié la DB à la main.
+    """)
+    k = kpis_companies(repo)
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Companies", f"{k['total']:,}".replace(",", " "))
+    c2.metric("Multi-shops", k["multishop"])
+    c3.metric("Domiciliées BMCE", f"{k['bmce']} ({k['bmce_pct']:.1f} %)")
+    c4.metric("🎯 Cibles acquisition", k["cibles_acquisition"])
+
+    st.divider()
+    if st.button("🔄 Rebuild table Companies", type="primary"):
+        with st.spinner("Agrégation shops → companies..."):
+            n = build_companies_table(repo)
+        st.success(f"✅ {n} companies ré-agrégées")
+        st.cache_data.clear()
+
+    st.divider()
+    st.markdown("**Export Companies Excel**")
+    if st.button("Générer export Companies"):
+        df_co = con.execute(
+            "SELECT * FROM companies ORDER BY score_acquisition DESC"
+        ).df()
+        buf = io.BytesIO()
+        with pd.ExcelWriter(buf, engine="openpyxl") as w:
+            df_co.to_excel(w, sheet_name="Companies", index=False)
+            df_co[
+                (df_co["nb_shops"] > 1)
+                & (df_co["banque"] == "BMCE")
+                & (df_co["nb_shops_nc"] > 0)
+            ].to_excel(w, sheet_name="Cibles acquisition", index=False)
+        st.download_button(
+            "📥 Télécharger companies.xlsx",
+            data=buf.getvalue(),
+            file_name=f"companies_{date.today().isoformat()}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+
 with tab_exp:
     st.markdown("**Snapshot complet DB → Excel**")
     if st.button("Générer snapshot Excel"):
@@ -91,6 +136,9 @@ with tab_exp:
                 """).df().to_excel(w, sheet_name="Volumes latest", index=False)
                 con.execute("SELECT * FROM conformite").df().to_excel(
                     w, sheet_name="Conformite", index=False)
+                con.execute(
+                    "SELECT * FROM companies ORDER BY score_acquisition DESC"
+                ).df().to_excel(w, sheet_name="Companies", index=False)
             st.download_button(
                 "📥 Télécharger",
                 data=buf.getvalue(),

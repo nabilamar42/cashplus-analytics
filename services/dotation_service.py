@@ -36,6 +36,35 @@ def dotations_toutes_propres(
     return df.sort_values("dotation_cible", ascending=False)
 
 
+def dotations_par_company(
+    repo: DuckDBRepo,
+    jours_couverture: int = 2,
+    buffer_pct: float = 20.0,
+    saisonnalite_pct: float = 0.0,
+    only_multishop: bool = False,
+) -> pd.DataFrame:
+    """DataFrame dotation cash par Company (société franchisée).
+
+    besoin_jour = somme des |solde_jour| négatifs des shops de la Company.
+    """
+    con = repo.con()
+    q = """
+      SELECT societe, banque, nb_shops, nb_shops_conformes, nb_shops_nc,
+             nb_villes, dr_principal,
+             flux_total_jour AS flux_jour,
+             besoin_cash_jour AS besoin_jour,
+             score_acquisition
+      FROM companies
+    """
+    if only_multishop:
+        q += " WHERE nb_shops > 1"
+    df = con.execute(q).df()
+    df["dotation_cible"] = df["besoin_jour"].apply(
+        lambda b: dotation_cible(b, jours_couverture, buffer_pct, saisonnalite_pct)
+    )
+    return df.sort_values("dotation_cible", ascending=False)
+
+
 def total_reseau(df_dotations: pd.DataFrame) -> dict:
     return {
         "total_besoin_jour": float(df_dotations["besoin_jour"].sum()),

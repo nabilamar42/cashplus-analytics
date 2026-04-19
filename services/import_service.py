@@ -7,21 +7,36 @@ from adapters.excel_importer import (
 )
 
 
+def _rebuild_companies(repo: DuckDBRepo) -> int:
+    """Rebuild companies table — lazy import to avoid circular."""
+    from services.company_service import build_companies_table
+    return build_companies_table(repo)
+
+
 def importer_rapport_solde(repo: DuckDBRepo, path_xlsx: str,
-                           snapshot: str | None = None) -> dict:
+                           snapshot: str | None = None,
+                           rebuild_companies: bool = True) -> dict:
     snap = snapshot or date.today().isoformat()
     volumes = load_rapport_solde(path_xlsx, snapshot=snap)
     n = repo.upsert_snapshot(volumes)
-    return {"snapshot_date": snap, "lignes_importees": n, "source": path_xlsx}
+    nb_co = _rebuild_companies(repo) if rebuild_companies else 0
+    return {
+        "snapshot_date": snap, "lignes_importees": n, "source": path_xlsx,
+        "companies_rebuilt": nb_co,
+    }
 
 
-def importer_base_agences(repo: DuckDBRepo, path_base: str, path_banques: str) -> dict:
+def importer_base_agences(repo: DuckDBRepo, path_base: str, path_banques: str,
+                          rebuild_companies: bool = True) -> dict:
     agences = load_base_agences(path_base, path_banques)
     n = repo.upsert_agences(agences)
-    return {"lignes_importees": n}
+    nb_co = _rebuild_companies(repo) if rebuild_companies else 0
+    return {"lignes_importees": n, "companies_rebuilt": nb_co}
 
 
-def importer_conformite(repo: DuckDBRepo, path_csv: str) -> dict:
+def importer_conformite(repo: DuckDBRepo, path_csv: str,
+                        rebuild_companies: bool = True) -> dict:
     rattachements = load_conformite_csv(path_csv)
     repo.replace_all(rattachements)
-    return {"lignes_importees": len(rattachements)}
+    nb_co = _rebuild_companies(repo) if rebuild_companies else 0
+    return {"lignes_importees": len(rattachements), "companies_rebuilt": nb_co}
