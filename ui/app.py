@@ -1,4 +1,8 @@
-"""CashPlus — Plateforme CashManagement. Entrée Streamlit."""
+"""CashPlus — Plateforme CashManagement. Entrée Streamlit.
+
+North Star : réduire la dépendance bancaire en internalisant la compensation
+cash via le réseau propre.
+"""
 from __future__ import annotations
 import sys
 from pathlib import Path
@@ -9,12 +13,13 @@ sys.path.insert(0, str(ROOT))
 import streamlit as st
 from adapters.duckdb_repo import DuckDBRepo
 from services.scoring_service import kpis_globaux
+from services.autonomie_service import kpis_autonomie, commissions_mensuelles
 
 DB_PATH = str(ROOT / "data" / "cashplus.db")
 
 st.set_page_config(
-    page_title="CashPlus — CashManagement",
-    page_icon="💰",
+    page_title="CashPlus — Autonomie Cash",
+    page_icon="🎯",
     layout="wide",
 )
 
@@ -26,45 +31,83 @@ def get_repo():
 
 repo = get_repo()
 
-st.title("💰 CashPlus — Plateforme CashManagement")
-st.caption("Pilotage autonomie cash du réseau — 4 560 franchisés, 701 agences propres")
+st.title("🎯 CashPlus — Autonomie Cash du réseau")
+st.caption("Plateforme de pilotage de la dépendance bancaire et "
+           "d'internalisation de la compensation cash via le réseau propre.")
 
-k = kpis_globaux(repo)
+# === 3 KPI North Star ===
+aut = kpis_autonomie(repo)
+com = commissions_mensuelles(repo)
 
-st.subheader("Vue Shops")
-col1, col2, col3, col4 = st.columns(4)
-col1.metric("Shops franchisés", f"{k['nb_franchises']:,}".replace(",", " "))
-col2.metric("Conformes (≤50 km / 30 min)", f"{k['conformes']:,}".replace(",", " "),
-            f"{k['conformite_pct']:.1f} %")
-col3.metric("Non conformes", k["nc"])
-col4.metric("Flux réseau / jour", f"{k['flux_total_jour_M']:.0f} M MAD")
+st.subheader("North Star Metrics")
+n1, n2, n3 = st.columns(3)
+n1.metric("🎯 Autonomie réseau",
+          f"{aut['autonomie_pct']:.1f} %",
+          f"{aut['compensable_jour']/1e6:.1f} M MAD/j compensables en interne")
+n2.metric("🏦 Dépendance bancaire",
+          f"{aut['dependance_pct']:.1f} %",
+          f"{aut['bancaire_jour']/1e6:.1f} M MAD/j — objectif <10 %",
+          delta_color="inverse")
+n3.metric("💰 Besoin cash réseau",
+          f"{aut['besoin_total_jour']/1e6:.1f} M MAD/j",
+          f"{aut['nb_companies_total']} companies franchisées")
 
-co = k.get("companies", {})
-if co and co.get("total"):
-    st.subheader("Vue Companies (vraies entités juridiques)")
-    d1, d2, d3, d4 = st.columns(4)
-    d1.metric("Companies franchisées", f"{co['total']:,}".replace(",", " "))
-    d2.metric("Multi-shops", co["multishop"],
-              f"{co['multishop']/co['total']*100:.1f} %")
-    d3.metric("Domiciliées BMCE", co["bmce"],
-              f"{co['bmce_pct']:.1f} %")
-    d4.metric("🎯 Cibles acquisition", co["cibles_acquisition"],
-              "multi × BMCE × NC")
-
-st.subheader("Segmentation volumétrique")
-segs = k["segments"]
-c1, c2, c3, c4 = st.columns(4)
-c1.metric("HAUTE_VALEUR (≥150k/j)", segs.get("HAUTE_VALEUR", 0))
-c2.metric("STANDARD (50–150k/j)", segs.get("STANDARD", 0))
-c3.metric("MARGINAL (<50k/j)", segs.get("MARGINAL", 0))
-c4.metric("INCONNU (sans donnée)", segs.get("INCONNU", 0))
+st.progress(aut['autonomie_pct'] / 100,
+            text=f"Autonomie cash : {aut['autonomie_pct']:.1f} % — "
+                 f"objectif 90 % (gap {max(0, 90-aut['autonomie_pct']):.1f} pts)")
 
 st.divider()
+
+# === Vue Shops et Companies condensée ===
+k = kpis_globaux(repo)
+
+c1, c2 = st.columns(2)
+with c1:
+    st.subheader("🏬 Vue Shops (réseau franchisé)")
+    a, b, c = st.columns(3)
+    a.metric("Shops franchisés", f"{k['nb_franchises']:,}".replace(",", " "))
+    b.metric("Conformes (≤50 km / 30 min)", f"{k['conformes']:,}".replace(",", " "),
+            f"{k['conformite_pct']:.1f} %")
+    c.metric("Non conformes", k["nc"])
+
+with c2:
+    co = k.get("companies", {})
+    if co and co.get("total"):
+        st.subheader("🏢 Vue Companies (sociétés franchisées)")
+        a, b, c = st.columns(3)
+        a.metric("Companies", f"{co['total']:,}".replace(",", " "))
+        b.metric("Multi-shops", co["multishop"])
+        c.metric("🎯 Cibles acquisition", co["cibles_acquisition"],
+                 "multi × BMCE × NC")
+
+# === Potentiel économique ===
+st.divider()
+st.subheader("💵 Potentiel d'économie mensuel (commissions bancaires)")
+p1, p2, p3 = st.columns(3)
+p1.metric("Commissions totales",
+          f"{com['commissions_mois_total']/1e3:.0f} k MAD/mois",
+          "sur l'ensemble du besoin")
+p2.metric("Déjà internalisé",
+          f"{com['commissions_mois_internalisables']/1e3:.0f} k MAD/mois",
+          help="Via le réseau propre actuel")
+p3.metric("Résiduel bancaire",
+          f"{com['commissions_mois_bancaires_residuelles']/1e3:.0f} k MAD/mois",
+          "à convertir via ouvertures propres",
+          delta_color="inverse")
+
+st.divider()
+
 st.markdown("""
-### Navigation
-- **🗺️  Carte** — visualisation interactive du réseau
-- **📊  Scoring** — priorités d'ouverture d'agences (à venir)
-- **🧪  Simulateur** — impact d'une nouvelle ouverture (à venir)
-- **🏦  Dépôts** — plan hub-and-spoke (à venir)
-- **📥  Import / Exports** — mise à jour des données (à venir)
+### Navigation plateforme
+
+| Page | Usage |
+|---|---|
+| 🎯 **Dépendance bancaire** | Dashboard Comex — autonomie + répartition banque/DR/ville |
+| 🗺️ **Carte** | Visualisation interactive du réseau (shops, propres, Companies) |
+| 💰 **Dotations** | Plan CIT — pivot Propre × Company (opérationnel) |
+| 📊 **Ouvertures propres** | Villes prioritaires pour ouvrir une agence propre |
+| 🧪 **Simulateur** | Impact financier d'une ouverture (ROI, MAD internalisable) |
+| 🏢 **Companies** | Vue société — cibles acquisition Comex |
+| 🏦 **Dépôts** | Hub-and-spoke + TCO CIT externe/convoyeur interne |
+| 📥 **Import / Exports** | Mise à jour des données (rapports, balances, conformité) |
 """)

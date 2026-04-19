@@ -14,7 +14,12 @@ import pandas as pd
 from adapters.duckdb_repo import DuckDBRepo
 from adapters.osrm_client import HttpOsrmClient
 from services.simulation_service import simuler_ouverture
+from services.autonomie_service import impact_ouverture_propre
 from core.rattachement import agences_necessaires
+from core.autonomie import (
+    roi_ouverture_propre, CAPEX_OUVERTURE_PROPRE_MAD,
+    OPEX_ANNUEL_PROPRE_MAD, COMMISSION_BANCAIRE_PAR_MILLION_DEFAUT,
+)
 
 DB_PATH = str(ROOT / "data" / "cashplus.db")
 
@@ -31,11 +36,26 @@ def get_osrm():
     return HttpOsrmClient()
 
 
-st.title("🧪 Simulateur — Et si j'ouvrais une propre ici ?")
-st.caption("Clique sur la carte (ou saisis lat/lon) pour simuler l'impact d'une ouverture")
+st.title("🧪 Simulateur d'ouverture — impact financier & géographique")
+st.caption("Clique sur la carte (ou saisis lat/lon) pour simuler l'impact "
+           "d'une ouverture d'agence propre : NC résolus + MAD internalisables + ROI.")
 
 repo = get_repo()
 osrm = get_osrm()
+
+with st.sidebar:
+    st.header("Hypothèses économiques")
+    capex = st.number_input("CAPEX ouverture (MAD)",
+                            0, 2_000_000,
+                            int(CAPEX_OUVERTURE_PROPRE_MAD), 10_000)
+    opex = st.number_input("OPEX annuel (MAD)",
+                           0, 1_000_000,
+                           int(OPEX_ANNUEL_PROPRE_MAD), 10_000)
+    taux = st.number_input("Commission bancaire (MAD / million)",
+                           0, 5000,
+                           int(COMMISSION_BANCAIRE_PAR_MILLION_DEFAUT), 50,
+                           help="Coût bancaire moyen par million MAD retiré")
+    st.caption(f"Soit **{taux/1000:.3f} %** du volume bancaire")
 
 if not osrm.ping():
     st.error("OSRM indisponible sur localhost:5001. Lance `docker start osrm-maroc`.")
@@ -127,3 +147,54 @@ if "sim_result" in st.session_state:
     else:
         st.warning("Aucun franchisé nouvellement rattaché (point déjà couvert "
                    "ou trop isolé).")
+
+    # === Volet financier (autonomie + ROI) ===
+    st.divider()
+    st.subheader("💰 Impact financier — internalisation & ROI")
+    fin = impact_ouverture_propre(
+        repo, st.session_state.get("sim_lat", 31.7),
+        st.session_state.get("sim_lon", -7.1), seuil_km=50.0,
+    )
+    f1, f2, f3, f4 = st.columns(4)
+    f1.metric("Companies impactées", fin["nb_companies_impactees"])
+    f2.metric("MAD internalisable / jour",
+              f"{fin['gain_compensation_jour']/1e3:.0f} k MAD",
+              f"{fin['gain_compensation_an']/1e6:.2f} M MAD/an")
+    f3.metric("Autonomie réseau",
+              f"{fin['autonomie_apres_pct']:.2f} %",
+              f"+{fin['delta_autonomie_pts']:.2f} pts")
+    f4.metric("Shops NC résolus (score financier)",
+              fin["nb_shops_nc_resolus"])
+
+    # ROI
+    roi = roi_ouverture_propre(
+        fin["gain_compensation_jour"],
+        taux_commission_par_million=taux,
+        capex=capex, opex_annuel=opex,
+    )
+    st.markdown("##### Retour sur investissement")
+    r1, r2, r3, r4 = st.columns(4)
+    r1.metric("CAPEX", f"{roi['capex']/1e3:.0f} k MAD")
+    r2.metric("OPEX annuel", f"{roi['opex_annuel']/1e3:.0f} k MAD")
+    r3.metric("Gain commissions /an",
+              f"{roi['gain_commissions_an']/1e3:.0f} k MAD",
+              f"net {roi['net_annuel']/1e3:.0f} k/an")
+    if roi["break_even_mois"] == float("inf"):
+        r4.metric("Break-even", "—",
+                  "gain insuffisant vs OPEX",
+                  delta_color="inverse")
+    else:
+        r4.metric("Break-even",
+                  f"{roi['break_even_mois']:.0f} mois",
+                  f"ROI 3 ans : {roi['roi_3ans_pct']:.0f} %")
+
+    if roi["break_even_mois"] == float("inf"):
+        st.error("⚠️ Le gain de commissions n'absorbe pas l'OPEX annuel — "
+                 "ouverture non rentable sur ce site avec les paramètres actuels.")
+    elif roi["break_even_mois"] < 24:
+        st.success(f"✅ Ouverture rentable : break-even en "
+                   f"{roi['break_even_mois']:.0f} mois, "
+                   f"ROI 3 ans **{roi['roi_3ans_pct']:.0f} %**.")
+    else:
+        st.warning(f"Break-even {roi['break_even_mois']:.0f} mois — "
+                   "examiner avec Soufiane.")

@@ -14,6 +14,7 @@ from adapters.duckdb_repo import DuckDBRepo
 from services.company_service import (
     list_companies, cibles_acquisition, company_detail, kpis_companies,
 )
+from services.autonomie_service import companies_enrichies
 
 DB_PATH = str(ROOT / "data" / "cashplus.db")
 
@@ -53,25 +54,37 @@ with tab1:
         banques = ["Toutes", "BMCE", "BP", "CIH", "Attijari WafaBank", "CDM"]
         b_sel = st.selectbox("Banque", banques, index=0)
 
-    df = list_companies(repo, only_multishop=only_multi,
-                        banque=None if b_sel == "Toutes" else b_sel)
-    st.caption(f"{len(df)} companies")
+    # Base enrichie avec part_compensable / part_bancaire
+    df_enr = companies_enrichies(repo)
+    df = df_enr.copy()
+    if only_multi:
+        df = df[df["nb_shops"] > 1]
+    if b_sel != "Toutes":
+        df = df[df["banque"] == b_sel]
+    df = df.sort_values("priorite_comex", ascending=False)
+    st.caption(f"{len(df)} companies (triées par priorité Comex = "
+               "score × part bancaire non internalisée)")
 
     disp = df.copy()
-    disp["flux_total_jour"] = disp["flux_total_jour"].apply(
-        lambda x: f"{x:,.0f}".replace(",", " "))
-    disp["besoin_cash_jour"] = disp["besoin_cash_jour"].apply(
-        lambda x: f"{x:,.0f}".replace(",", " "))
+    for c in ["flux_total_jour", "besoin_cash_jour", "part_compensable",
+              "part_bancaire"]:
+        disp[c] = disp[c].apply(lambda x: f"{x:,.0f}".replace(",", " "))
     disp["score_acquisition"] = disp["score_acquisition"].round(2)
+    disp["autonomie_pct"] = disp["autonomie_pct"].round(1)
+    disp["priorite_comex"] = disp["priorite_comex"].round(2)
     disp = disp.rename(columns={
         "societe": "Société", "banque": "Banque", "nb_shops": "Shops",
         "nb_shops_conformes": "Conf.", "nb_shops_nc": "NC",
         "nb_villes": "Villes", "dr_principal": "DR",
-        "flux_total_jour": "Flux/j", "besoin_cash_jour": "Besoin cash/j",
-        "score_acquisition": "Score acq.",
+        "flux_total_jour": "Flux/j", "besoin_cash_jour": "Besoin/j",
+        "part_compensable": "Compensable/j", "part_bancaire": "Bancaire/j",
+        "autonomie_pct": "Autonomie %",
+        "score_acquisition": "Score acq.", "priorite_comex": "Priorité Comex",
     })
-    st.dataframe(disp.drop(columns=["solde_total_jour"], errors="ignore"),
-                 hide_index=True, use_container_width=True, height=500)
+    st.dataframe(
+        disp.drop(columns=["solde_total_jour"], errors="ignore"),
+        hide_index=True, use_container_width=True, height=500,
+    )
 
     buf = io.BytesIO()
     with pd.ExcelWriter(buf, engine="openpyxl") as w:
