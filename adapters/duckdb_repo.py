@@ -75,6 +75,14 @@ class DuckDBRepo:
           initial_balance DOUBLE,
           PRIMARY KEY (agence_nom, diary_date)
         )""")
+        # Phase 5 — Paramètres globaux persistés (éditables via UI)
+        self._con.execute("""
+        CREATE TABLE IF NOT EXISTS parameters (
+          key VARCHAR PRIMARY KEY,
+          value DOUBLE,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          description VARCHAR
+        )""")
 
     def close(self):
         self._con.close()

@@ -24,6 +24,7 @@ from core.depot import (
     VILLES_DEPOTS_DEFAUT,
 )
 from core.dotation import BESOIN_OPERATIONS_PROPRE_DEFAUT
+from services.parameters_service import get_param
 from services.depot_service import (
     auto_select_depots, list_depots, set_depots_ville, network_depots,
     propres_de_ville,
@@ -48,23 +49,33 @@ st.caption("CIT externe (Brinks/G4S) → 8 dépôts CashPlus → convoyeur inter
 with st.sidebar:
     st.header("Paramètres réseau")
     rayon = st.slider("Rayon convoyeur interne (km)", 5, 100,
-                      int(RAYON_DEPOT_KM_DEFAUT))
-    jours = st.slider("Jours entre passages CIT", 1, 7, 2)
+                      int(get_param(repo, "rayon_depot_km",
+                                    RAYON_DEPOT_KM_DEFAUT)))
+    jours = st.slider("Jours entre passages CIT", 1, 7,
+                      int(get_param(repo, "jours_couverture", 2)))
 
     st.subheader("CIT externe (Brinks/G4S)")
-    cout_passage = st.number_input("Coût / passage (MAD)", 50, 1000,
-                                   int(COUT_CIT_PAR_PASSAGE_DEFAUT), 10)
+    cout_passage = st.number_input(
+        "Coût / passage (MAD)", 50, 1000,
+        int(get_param(repo, "cout_cit_par_passage",
+                      COUT_CIT_PAR_PASSAGE_DEFAUT)), 10)
 
     st.subheader("Convoyeur interne (OPEX)")
-    cout_conv_km = st.number_input("Coût / km (MAD)", 0.0, 50.0,
-                                   float(COUT_CONVOYEUR_KM_DEFAUT), 0.5)
-    cout_conv_fixe = st.number_input("Coût fixe / tournée (MAD)", 0, 5000,
-                                     int(COUT_CONVOYEUR_FIXE_DEFAUT), 50)
+    cout_conv_km = st.number_input(
+        "Coût / km (MAD)", 0.0, 50.0,
+        float(get_param(repo, "cout_convoyeur_km",
+                        COUT_CONVOYEUR_KM_DEFAUT)), 0.5)
+    cout_conv_fixe = st.number_input(
+        "Coût fixe / tournée (MAD)", 0, 5000,
+        int(get_param(repo, "cout_convoyeur_fixe",
+                      COUT_CONVOYEUR_FIXE_DEFAUT)), 50)
 
     st.subheader("Besoin ops propre")
     besoin_ops = st.number_input(
         "Cash guichet / propre / jour (MAD)",
-        0, 2_000_000, int(BESOIN_OPERATIONS_PROPRE_DEFAUT), 10_000,
+        0, 2_000_000,
+        int(get_param(repo, "besoin_ops_propre",
+                      BESOIN_OPERATIONS_PROPRE_DEFAUT)), 10_000,
         help="Cash-in/cash-out guichet hors compensation franchisés",
     )
 

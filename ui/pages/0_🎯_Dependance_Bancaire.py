@@ -17,6 +17,7 @@ from services.autonomie_service import (
     dependance_par_ville, commissions_mensuelles, revenus_captables,
     companies_enrichies,
 )
+from services.parameters_service import get_param
 
 DB_PATH = str(ROOT / "data" / "cashplus.db")
 st.set_page_config(page_title="Dépendance bancaire — CashPlus", layout="wide")
@@ -38,15 +39,19 @@ with st.sidebar:
     st.header("Paramètres commissions")
     taux = st.number_input(
         "Taux commission (MAD par million)",
-        0, 10000, int(COMMISSION_BANCAIRE_PAR_MILLION_DEFAUT), 50,
+        0, 10000,
+        int(get_param(repo, "commission_par_million",
+                      COMMISSION_BANCAIRE_PAR_MILLION_DEFAUT)), 50,
         help="500 = 0,05 % | 1000 = 0,1 % | 5000 = 0,5 % du volume brut"
     )
     st.caption(f"Soit **{taux/10000:.3f} %** du volume brut (cash-in + cash-out)")
-    jours_ouvres = st.slider("Jours ouvrés / mois", 20, 30, 26)
+    jours_ouvres = st.slider("Jours ouvrés / mois", 20, 30,
+                             int(get_param(repo, "jours_ouvres_mois", 26)))
     jours_ytd = st.number_input("Jours YTD (snapshot actuel)",
-                                30, 300, 107, 1,
-                                help="Nb jours couverts par cashin/cashout_ytd "
-                                     "— défaut 107 pour 2026-04-18")
+                                30, 300,
+                                int(get_param(repo, "jours_ytd_snapshot", 107)),
+                                1,
+                                help="Nb jours couverts par cashin/cashout_ytd")
     st.divider()
     if st.button("🔄 Vider cache"):
         st.cache_data.clear()

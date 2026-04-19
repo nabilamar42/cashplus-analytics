@@ -21,6 +21,7 @@ from core.autonomie import (
     roi_ouverture_propre, CAPEX_OUVERTURE_PROPRE_MAD,
     OPEX_ANNUEL_PROPRE_MAD, COMMISSION_BANCAIRE_PAR_MILLION_DEFAUT,
 )
+from services.parameters_service import get_param
 
 DB_PATH = str(ROOT / "data" / "cashplus.db")
 
@@ -48,13 +49,19 @@ with st.sidebar:
     st.header("Hypothèses économiques")
     capex = st.number_input("CAPEX ouverture (MAD)",
                             0, 2_000_000,
-                            int(CAPEX_OUVERTURE_PROPRE_MAD), 10_000)
+                            int(get_param(repo, "capex_ouverture_propre",
+                                          CAPEX_OUVERTURE_PROPRE_MAD)),
+                            10_000)
     opex = st.number_input("OPEX annuel (MAD)",
                            0, 1_000_000,
-                           int(OPEX_ANNUEL_PROPRE_MAD), 10_000)
+                           int(get_param(repo, "opex_annuel_propre",
+                                         OPEX_ANNUEL_PROPRE_MAD)),
+                           10_000)
     taux = st.number_input("Commission bancaire (MAD / million)",
                            0, 5000,
-                           int(COMMISSION_BANCAIRE_PAR_MILLION_DEFAUT), 50,
+                           int(get_param(repo, "commission_par_million",
+                                         COMMISSION_BANCAIRE_PAR_MILLION_DEFAUT)),
+                           50,
                            help="Coût bancaire moyen par million MAD retiré")
     st.caption(f"Soit **{taux/1000:.3f} %** du volume bancaire")
 

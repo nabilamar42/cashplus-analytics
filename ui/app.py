@@ -115,5 +115,7 @@ st.markdown("""
 | 🧪 **Simulateur** | Impact financier d'une ouverture (ROI, MAD internalisable) |
 | 🏢 **Companies** | Vue société — cibles acquisition Comex |
 | 🏦 **Dépôts** | Hub-and-spoke + TCO CIT externe/convoyeur interne |
+| 📅 **Scénarios & Planning** | Scénarios Comex + planning CIT J+7 |
 | 📥 **Import / Exports** | Mise à jour des données (rapports, balances, conformité) |
+| ⚙️ **Paramètres** | Paramètres métier globaux éditables (persistés en base) |
 """)

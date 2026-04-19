@@ -20,6 +20,7 @@ from services.dotation_service import (
     dotations_toutes_propres, total_reseau,
 )
 from core.dotation import BESOIN_OPERATIONS_PROPRE_DEFAUT
+from services.parameters_service import get_param
 
 DB_PATH = str(ROOT / "data" / "cashplus.db")
 st.set_page_config(page_title="Dotations — CashPlus", layout="wide")
@@ -47,7 +48,8 @@ with st.sidebar:
     besoin_ops = st.number_input(
         "Besoin opérations propre (MAD/jour)",
         min_value=0, max_value=2_000_000,
-        value=int(BESOIN_OPERATIONS_PROPRE_DEFAUT), step=10_000,
+        value=int(get_param(get_repo(), "besoin_ops_propre",
+                             BESOIN_OPERATIONS_PROPRE_DEFAUT)), step=10_000,
         help="Cash-in/cash-out guichet — hors compensation franchisés"
     )
     st.divider()
