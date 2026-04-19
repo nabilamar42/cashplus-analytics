@@ -15,11 +15,23 @@ from services.import_service import (
     importer_base_agences, importer_rapport_solde, importer_conformite,
 )
 
-BASE_CPLUS = "/Users/nabilamar/Library/CloudStorage/OneDrive-CASHPLUS/Microsoft Teams Chat Files/BASE C+ février 206.xlsx"
-BANQUES_XLS = "/Users/nabilamar/Downloads/COUVERTUE VILLE..xls"
-RAPPORT_YTD = str(ROOT / "rapport_solde_agences_2026-04-18.xlsx")
-CONFORMITE_CSV = str(ROOT / "resultats_conformite.csv")
-DB_PATH = str(ROOT / "data" / "cashplus.db")
+BASE_CPLUS = os.environ.get(
+    "CASHPLUS_BASE",
+    str(ROOT / "data_source" / "base_cplus.xlsx"),
+)
+BANQUES_XLS = os.environ.get(
+    "CASHPLUS_BANQUES",
+    str(ROOT / "data_source" / "banques.xls"),
+)
+RAPPORT_YTD = os.environ.get(
+    "CASHPLUS_RAPPORT",
+    str(ROOT / "rapport_solde_agences_2026-04-18.xlsx"),
+)
+CONFORMITE_CSV = os.environ.get(
+    "CASHPLUS_CONFORMITE",
+    str(ROOT / "resultats_conformite.csv"),
+)
+DB_PATH = os.environ.get("CASHPLUS_DB", str(ROOT / "data" / "cashplus.db"))
 
 
 def main():
