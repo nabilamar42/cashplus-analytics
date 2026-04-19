@@ -1,116 +1,168 @@
-# CashPlus — Plateforme Autonomie Cash Réseau
+# CashPlus — Plateforme CashManagement
 
-## Contexte du projet
+## Contexte
 
-Projet d'analyse et de pilotage de l'autonomie cash du réseau CashPlus (4 560 franchisés, 701 agences propres, Maroc).
-Initié en avril 2026 dans le cadre du chantier stratégique Comex piloté par Soufiane (DGD Support).
+Plateforme de pilotage de l'autonomie cash du réseau CashPlus (4 560 shops franchisés,
+701 agences propres, Maroc). Objectif Comex : réduire la dépendance BMCE (47,8 %) en
+construisant un modèle d'alimentation directe via agences propres + CIT, et identifier
+les **Companies** (sociétés juridiques franchisées) à convertir en propre.
 
-Objectif : éliminer la dépendance aux banques commerciales (47,8 % BOA) dans la circulation cash opérationnelle du réseau,
-en construisant un modèle d'alimentation directe via agences propres + convoyeurs de fonds (CIT).
+## Domain model (IMPORTANT)
 
-## Architecture du projet
+Un **franchisé = une Company** (société juridique) qui possède **1..N Shops** (agences
+physiques). La banque domiciliataire est définie **au niveau Company**, pas Shop.
+Un seul deal d'acquisition libère donc potentiellement plusieurs shops.
+
+```
+Company (Société)
+  ├─ banque domiciliataire (unique)
+  ├─ nb_shops, nb_shops_conformes, nb_shops_nc
+  ├─ dr_principal, nb_villes
+  ├─ flux_total_jour, besoin_cash_jour
+  └─ score_acquisition = f(flux, multi_shops, banque, %NC)
+```
+
+## Architecture (clean, en couches)
 
 ```
 cashplus-analytics/
-├── CLAUDE.md                                        # ce fichier
-├── calcul_complet_table.py                          # calcul matrice OSRM 4560×701
-├── calcul_conformite.py                             # ancien script pré-filtre N=5 (remplacé)
-├── resultats_conformite.csv                         # résultats matrice complète — source de vérité
-├── Conformite_Cash_Reseau_CashPlus_Avril2026.xlsx   # fichier Excel Comex (4 onglets)
-├── Note_Methodologie_Conformite_Cash_Reseau.docx    # note méthodologique équipe cash management
-└── osrm/                                            # données OSM Maroc + graph routier OSRM
-    └── morocco-latest.osm.pbf                       # données OpenStreetMap Maroc (231 MB)
+├── core/                    # logique métier pure (0 dépendance externe, testable)
+│   ├── domain.py            # dataclasses Agence, Volume, Rattachement, Company, Scenario
+│   ├── segmentation.py      # HAUTE_VALEUR ≥150k/j, STANDARD 50-150k, MARGINAL <50k
+│   ├── rattachement.py      # SEUIL_KM=50, SEUIL_MIN=30, capacité propre=10
+│   ├── scoring.py           # score_priorite(flux, dist, banque)
+│   ├── company.py           # score_acquisition(nb_shops, nc, banque, flux)
+│   ├── dotation.py          # dotation_cible = besoin × j × (1+buffer)(1+saison)
+│   └── repository.py        # Protocols (AgenceRepo, VolumeRepo, OsrmClient…)
+├── adapters/                # infrastructure
+│   ├── duckdb_repo.py       # DuckDB (agences, volumes historisé, conformite, companies, scenarios)
+│   ├── osrm_client.py       # HTTP OSRM + batching 100×100 + ThreadPool
+│   └── excel_importer.py    # BASE C+, rapport solde, conformité CSV
+├── services/                # use-cases orchestrés
+│   ├── scoring_service.py   # _franchises_df, kpis_globaux, propre_detail
+│   ├── company_service.py   # build_companies_table, list_companies, cibles_acquisition
+│   ├── dotation_service.py  # dotations_toutes_propres + dotations_par_company
+│   ├── simulation_service.py
+│   └── import_service.py    # rebuild_companies auto après chaque import
+├── ui/                      # Streamlit
+│   ├── app.py               # KPIs Shops + KPIs Companies
+│   └── pages/
+│       ├── 1_🗺️_Carte.py           # franchisés + propres + polygones Companies
+│       ├── 2_💰_Dotations.py       # Propres (CIT) + Companies (engagement cash)
+│       ├── 3_📊_Scoring.py
+│       ├── 4_🧪_Simulateur.py
+│       ├── 5_📥_Import_Export.py   # upload rapport + rebuild companies + exports
+│       └── 6_🏢_Companies.py       # liste + cibles acquisition + détail
+├── cli/
+│   ├── build_initial_db.py  # ingestion totale + build_companies_table
+│   └── recalc_matrix.py     # OSRM 4560×701 + rebuild companies
+├── tests/                   # pytest : 21/21 passent
+│   ├── test_scoring.py       (8)
+│   ├── test_rattachement.py  (7)
+│   ├── test_dotation.py      (4)
+│   └── test_company.py       (5)
+├── data/cashplus.db
+└── data_source/             # BASE C+, banques, rapports Excel
 ```
 
-## Infrastructure locale
+## Infrastructure
 
-| Service | Commande de démarrage | Port | État |
+| Service | Commande | Port | État |
 |---|---|---|---|
-| OSRM Maroc | `docker start osrm-maroc` | 5001 | Prêt |
-| Metabase | `docker start metabase` (à déployer) | 3000 | Non déployé |
-| LME Odoo 17 | `docker compose -f /Users/nabilamar/LME/docker-compose.yml up -d` | 8069 | En cours |
-| MEAD Odoo 17 | `docker compose -f /Users/nabilamar/MEAD SYSTEM/docker-compose.yml up -d` | 8070 | En cours |
+| OSRM Maroc | `docker start osrm-maroc` | 5001 | Prêt (matrice 4560×701 en 13-24 s) |
+| Streamlit local | `python3 -m streamlit run ui/app.py --server.port 8505` | 8505 | — |
+| VPS OVH | `ssh ubuntu@51.77.213.131` + `systemctl restart streamlit-cashplus` | 443 | Prod (Nginx + HTTPS + basic auth nabil / CashPlus@2026) |
 
-> Port 5000 occupé par AirPlay macOS — OSRM tourne sur 5001.
+> Port 5000 occupé par AirPlay macOS → OSRM sur 5001.
 
-## Données source
-
-- **Base réseau** : `BASE C+ février 2026.xlsx` — OneDrive CashPlus
-  - 4 560 franchisés avec GPS, type, société, DR/RR/superviseur
-  - 701 agences propres avec GPS
-  - GPS complets à 100 %
-- **Résultats OSRM** : `resultats_conformite.csv` — matrice complète 3 196 560 paires
-
-## Paramètres métier actuels
+## Paramètres métier
 
 ```python
-SEUIL_KM   = 50    # distance route maximale (conformité)
-SEUIL_MIN  = 30    # durée trajet maximale (conformité)
-CAPACITE   = 10    # franchisés max par agence propre par jour
+SEUIL_KM                 = 50       # conformité distance route
+SEUIL_MIN                = 30       # conformité durée trajet
+CAPACITE_PROPRE_STANDARD = 10       # franchisés/propre/jour
+MEDIANE_FLUX_RESEAU      = 42_309.0 # MAD/jour (médiane 2026)
+BANQUE_CIBLE             = "BMCE"   # 47,8 % du réseau
+PENALITE_BANQUE_CIBLE    = 1.5      # boost scoring BMCE
+MULT_MULTISHOP           = 1.3      # boost par shop additionnel
 ```
 
-## Résultats courants (matrice complète, avril 2026)
+## KPIs courants (snapshot 2026-04-18)
 
-- **Conformes** : 3 787 (83,0 %)
-- **Non conformes** : 773 (17,0 %)
-- **DR Mounir Elhanti** : 447 NC | **DR Omar Jabri** : 326 NC
-- **32 villes** sans agence propre avec >5 franchisés
-- **15 villes urgence** (Cat 1) → 19 agences propres nécessaires
-- **Budget 2026** : 70 agences — solde après Cat 1 : 51 agences
+- **Shops** : 4 560 franchisés | 701 propres | 3 787 conformes (83,0 %) | 773 NC
+- **Companies** : 3 374 sociétés | ~48 % BMCE | multi-shops distingués
+- **Volumes YTD 2026** : CashIn 14,83 Mds MAD | CashOut 19,22 Mds MAD
+- **Segmentation** : HAUTE_VALEUR ≥150k/j, STANDARD 50-150k, MARGINAL <50k
 
-## Méthode de calcul OSRM
+## Formules clés
 
-L'API `/table` d'OSRM calcule la matrice complète 4 560 × 701 en **13 secondes** (20 800 paires/sec).
-Ne pas utiliser l'ancien script `calcul_conformite.py` (pré-filtre N=5, moins précis).
+```python
+# Scoring priorité (ouverture agence propre)
+score_priorite = volume_normalise(flux) × (1 + penalite_distance(km)) × penalite_banque(b)
+
+# Score acquisition (rachat Company franchisée)
+score_acquisition = flux_norm × (1 + (nb_shops-1) × 0.3) × bmce_bonus × (1 + nc_ratio)
+
+# Dotation cash (propre OU company)
+dotation = besoin_jour × jours_couverture × (1 + buffer%) × (1 + saisonnalité%)
+```
+
+## Commandes courantes
 
 ```bash
-# Relancer le calcul complet
-python3 calcul_complet_table.py
+# Tests
+python3 -m pytest tests/ -q
 
-# Vérifier OSRM
-curl "http://localhost:5001/route/v1/driving/-6.851,33.991;-7.589,33.573?overview=false"
-# Rabat → Casa : ~86 km, ~64 min
+# Rebuild DB from scratch
+python3 -m cli.build_initial_db
+
+# Recalcul matrice OSRM + rebuild companies
+python3 -m cli.recalc_matrix
+
+# Lancement UI
+python3 -m streamlit run ui/app.py --server.port 8505
+
+# Déploiement VPS
+git push origin main
+ssh ubuntu@51.77.213.131 'cd cashplus-analytics && git pull && sudo systemctl restart streamlit-cashplus'
 ```
 
-## Évolutions prévues (roadmap plateforme)
+## Règles importantes
 
-### Phase 1 — Données actuelles (fait)
-- [x] Matrice OSRM complète 4 560 × 701
+- **Toujours** reconstruire la table `companies` après modif agences/volumes/conformité
+  (les services d'import le font automatiquement depuis la Phase 2.2).
+- **OSRM** : utiliser l'API `/table` pas `/route`. Format **lon,lat** (pas lat,lon).
+- **DuckDB** : un seul process écrit à la fois — arrêter Streamlit avant `cli/build_initial_db`.
+- **Clean architecture** : `core/` n'a AUCUNE dépendance externe (pandas/duckdb/requests interdits).
+
+## Roadmap
+
+### Phase 1 — Données (fait)
+- [x] Matrice OSRM 4 560 × 701 complète
 - [x] Conformité géographique (50 km / 30 min)
-- [x] Zones prioritaires + agences nécessaires (capacité 10 franchisés/propre/jour)
-- [x] Export Excel Comex + note méthodologique
 
-### Phase 2 — Intégration demande cash (à construire)
-- [ ] Variable `cash_daily_volume_mad` par franchisé (flux MAD/jour)
-- [ ] Segmentation : standard (<1M MAD/j) vs haute valeur (>1M MAD/j)
-- [ ] Pondération de la priorité d'ouverture par volume cash, pas seulement par nombre
-- [ ] Scoring composite : distance × volume × banque domiciliataire
+### Phase 2 — Plateforme (fait)
+- [x] 2.1 — Socle Streamlit + carte + tests (21 verts)
+- [x] 2.2 — Entité Company + page dédiée + cibles acquisition Comex
+- [x] 2.3 — Dotations au niveau Company + rebuild auto companies après import
+- [x] Déploiement VPS OVH (HTTPS + basic auth)
 
-### Phase 3 — Agences propres dépôt (concept à modéliser)
-- [ ] Nouveau type d'agence : `Propre Dépôt` (capacité >10M MAD, sécurité renforcée)
-- [ ] Rayon de service élargi (à définir)
-- [ ] Modèle hub-and-spoke : dépôt → propres standard → franchisés
-- [ ] Calcul du nombre de dépôts nécessaires par zone
+### Phase 3 — Dépôts hub-and-spoke (à modéliser)
+- [ ] Type agence `Propre Dépôt` (capacité >10M MAD)
+- [ ] Modèle dépôt → propres → shops
+- [ ] Calcul nombre de dépôts par zone
 
-### Phase 4 — Plateforme décision
-- [ ] Dashboard Metabase (carte Maroc interactive, filtres DR/RR/zone/statut)
-- [ ] Simulation d'impact (ouvrir une agence X → combien de NC résolus ?)
-- [ ] Intégration pipeline automatique (mise à jour trimestrielle OSM + base réseau)
-- [ ] API interne CashPlus `/api/conformite` pour alimentation d'autres outils
+### Phase 4 — Automatisation
+- [ ] Pipeline OSM trimestriel
+- [ ] API `/api/conformite` pour autres outils internes
+- [ ] Authentification multi-utilisateurs (remplacer basic auth)
+- [ ] Scénarios nommés persistés
 
-## Conventions de code
+## Contacts
 
-- Langage principal : **Python 3**
-- Librairies : pandas, requests, openpyxl, numpy
-- OSRM : toujours utiliser l'API `/table` (pas `/route`) pour les calculs batch
-- Format coordonnées OSRM : **longitude,latitude** (pas lat,lon)
-- Exports : CSV pour les données brutes, Excel openpyxl pour les livrables Comex
-
-## Contacts projet
-
-| Rôle | Personne | Périmètre |
-|---|---|---|
-| CEO / Initiateur | Nabil Amar | Cadrage stratégique |
-| Pilote chantier | Soufiane (DGD Support) | Cash management, négociation bancaire |
-| Tech / Data | Adil (DGD Product & Tech) | Infrastructure, dashboard, OSRM |
-| Commercial | Claire (DGD Revenu) | Réseau franchisés, ouvertures propres |
+| Rôle | Personne |
+|---|---|
+| CEO / Initiateur | Nabil Amar |
+| Pilote cash management | Soufiane (DGD Support) |
+| Tech / Data | Adil (DGD Product & Tech) |
+| Commercial / Revenue | Claire Gaborit (DGD Revenue) |

@@ -331,4 +331,48 @@ cashplus-analytics/
 
 ---
 
+## Amendement v1.1 (2026-04-19) — Couche Company
+
+### Contexte
+Un **franchisé = une Company** (société juridique) qui possède **1..N Shops**.
+La banque domiciliataire est définie **au niveau Company**, pas Shop. Les
+négociations d'acquisition et la tarification CIT se pilotent donc au niveau
+Company.
+
+### Ajouts modèle de données
+- **Table `companies`** (agrégée depuis `agences` par `societe`) : `societe` (PK),
+  `banque` (vote majoritaire), `nb_shops`, `nb_shops_conformes`, `nb_shops_nc`,
+  `nb_villes`, `dr_principal`, `flux_total_jour`, `solde_total_jour`,
+  `besoin_cash_jour`, `score_acquisition`.
+- Dataclass `core/domain.py::Company` (frozen).
+- `core/company.py::score_acquisition(nb_shops, nb_nc, banque, flux)` =
+  `flux_norm × (1 + (nb_shops-1) × 0.3) × bmce_bonus(×1.5) × (1 + nc_ratio)`.
+
+### Ajouts fonctionnels UI
+- **Page `6_🏢_Companies`** : liste, filtres multi-shop/banque, onglet **Cibles
+  acquisition Comex** (multi-shop × BMCE × ≥1 NC), détail société avec shops.
+- **Carte** (page 1) : filtre multi-select Company + polygone convexe (Graham
+  scan pur Python, pas de scipy) + highlight des shops de la Company sélectionnée.
+- **Dotations** (page 2) : section complémentaire **🏢 Par Company** — agrège
+  le besoin cash par société et applique la même formule
+  `dotation = besoin_jour × jours × (1 + buffer%) × (1 + saisonnalité%)`.
+  Base de négociation pour gros deals multi-shops.
+- **Import/Export** (page 5) : onglet **🏢 Companies** avec rebuild manuel +
+  export dédié (onglet Cibles acquisition inclus dans l'Excel) + onglet
+  Companies ajouté au snapshot consolidé.
+- **Homepage** : KPIs Companies (total, % multi-shops, % BMCE, cibles acquisition).
+
+### Garantie d'intégrité
+Les trois fonctions d'import (`importer_rapport_solde`, `importer_base_agences`,
+`importer_conformite`) déclenchent automatiquement `build_companies_table()` en
+fin de pipeline (flag `rebuild_companies=True` par défaut). Le nombre de
+companies ré-agrégées est renvoyé dans le dict résultat et affiché dans l'UI.
+
+### Tests
+- `tests/test_company.py` (5 tests) — couverture `score_acquisition` : zéros,
+  boost multi-shop, pénalité BMCE, boost NC, cible stratégique complète.
+- Total : **21 tests verts** (8 scoring + 7 rattachement + 4 dotation + 5 company).
+
+---
+
 **Fin du document.**
