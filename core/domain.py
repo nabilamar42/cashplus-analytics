@@ -60,6 +60,30 @@ class FrancheScored:
     score: float
 
 
+@dataclass(frozen=True)
+class Company:
+    """Franchisé = Société juridique qui possède 1..N shops."""
+    societe: str
+    banque: Optional[str]
+    nb_shops: int
+    nb_shops_conformes: int
+    nb_shops_nc: int
+    nb_villes: int
+    dr_principal: Optional[str]
+    flux_total_jour: float
+    solde_total_jour: float
+    besoin_cash_jour: float
+    score_acquisition: float = 0.0
+
+    @property
+    def conformite_pct(self) -> float:
+        return self.nb_shops_conformes / self.nb_shops * 100 if self.nb_shops else 0.0
+
+    @property
+    def est_multi_shop(self) -> bool:
+        return self.nb_shops > 1
+
+
 @dataclass
 class Scenario:
     nom: str

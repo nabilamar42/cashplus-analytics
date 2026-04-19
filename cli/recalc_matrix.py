@@ -61,6 +61,11 @@ def main():
     repo.replace_all(ratts)
     conformes = sum(1 for r in ratts if r.conforme)
     print(f"→ {len(ratts)} rattachements | conformes {conformes} ({conformes/len(ratts)*100:.1f}%)")
+
+    # Rebuild companies (les conformités ont changé)
+    from services.company_service import build_companies_table
+    n = build_companies_table(repo)
+    print(f"→ {n} companies ré-agrégées")
     repo.close()
 
 

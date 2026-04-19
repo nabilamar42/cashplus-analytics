@@ -33,6 +33,20 @@ class DuckDBRepo:
           duree_min DOUBLE, conforme BOOLEAN
         )""")
         self._con.execute("""
+        CREATE TABLE IF NOT EXISTS companies (
+          societe VARCHAR PRIMARY KEY,
+          banque VARCHAR,
+          nb_shops INTEGER,
+          nb_shops_conformes INTEGER,
+          nb_shops_nc INTEGER,
+          nb_villes INTEGER,
+          dr_principal VARCHAR,
+          flux_total_jour DOUBLE,
+          solde_total_jour DOUBLE,
+          besoin_cash_jour DOUBLE,
+          score_acquisition DOUBLE
+        )""")
+        self._con.execute("""
         CREATE TABLE IF NOT EXISTS scenarios (
           nom VARCHAR PRIMARY KEY, cree_le TIMESTAMP,
           payload JSON, notes VARCHAR

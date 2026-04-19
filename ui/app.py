@@ -31,12 +31,25 @@ st.caption("Pilotage autonomie cash du réseau — 4 560 franchisés, 701 agence
 
 k = kpis_globaux(repo)
 
+st.subheader("Vue Shops")
 col1, col2, col3, col4 = st.columns(4)
-col1.metric("Franchisés", f"{k['nb_franchises']:,}".replace(",", " "))
+col1.metric("Shops franchisés", f"{k['nb_franchises']:,}".replace(",", " "))
 col2.metric("Conformes (≤50 km / 30 min)", f"{k['conformes']:,}".replace(",", " "),
             f"{k['conformite_pct']:.1f} %")
 col3.metric("Non conformes", k["nc"])
 col4.metric("Flux réseau / jour", f"{k['flux_total_jour_M']:.0f} M MAD")
+
+co = k.get("companies", {})
+if co and co.get("total"):
+    st.subheader("Vue Companies (vraies entités juridiques)")
+    d1, d2, d3, d4 = st.columns(4)
+    d1.metric("Companies franchisées", f"{co['total']:,}".replace(",", " "))
+    d2.metric("Multi-shops", co["multishop"],
+              f"{co['multishop']/co['total']*100:.1f} %")
+    d3.metric("Domiciliées BMCE", co["bmce"],
+              f"{co['bmce_pct']:.1f} %")
+    d4.metric("🎯 Cibles acquisition", co["cibles_acquisition"],
+              "multi × BMCE × NC")
 
 st.subheader("Segmentation volumétrique")
 segs = k["segments"]

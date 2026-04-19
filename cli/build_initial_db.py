@@ -14,6 +14,7 @@ from adapters.duckdb_repo import DuckDBRepo
 from services.import_service import (
     importer_base_agences, importer_rapport_solde, importer_conformite,
 )
+from services.company_service import build_companies_table
 
 BASE_CPLUS = os.environ.get(
     "CASHPLUS_BASE",
@@ -53,6 +54,10 @@ def main():
     print("→ Import conformité OSRM (CSV)...")
     r = importer_conformite(repo, CONFORMITE_CSV)
     print(f"  {r['lignes_importees']} rattachements")
+
+    print("→ Agrégation companies...")
+    n = build_companies_table(repo)
+    print(f"  {n} companies")
 
     con = repo.con()
     print("\n=== KPIs ===")

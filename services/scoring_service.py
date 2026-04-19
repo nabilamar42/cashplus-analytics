@@ -106,6 +106,23 @@ def kpis_globaux(repo: DuckDBRepo) -> dict:
     avec_vol = int(df["flux_jour"].notna().sum())
     flux_total_j = df["flux_jour"].sum()
     segs = df["segment"].value_counts().to_dict()
+    # KPIs Company-level (si table peuplée)
+    con = repo.con()
+    companies = {}
+    try:
+        r = con.execute("""
+          SELECT COUNT(*), SUM(CASE WHEN nb_shops>1 THEN 1 ELSE 0 END),
+                 SUM(CASE WHEN banque='BMCE' THEN 1 ELSE 0 END),
+                 SUM(CASE WHEN banque='BMCE' AND nb_shops>1 AND nb_shops_nc>0 THEN 1 ELSE 0 END)
+          FROM companies
+        """).fetchone()
+        companies = {
+            "total": r[0] or 0, "multishop": r[1] or 0,
+            "bmce": r[2] or 0, "cibles_acquisition": r[3] or 0,
+            "bmce_pct": (r[2] / r[0] * 100) if r[0] else 0,
+        }
+    except Exception:
+        pass
     return {
         "nb_franchises": total,
         "conformes": conformes,
@@ -114,4 +131,5 @@ def kpis_globaux(repo: DuckDBRepo) -> dict:
         "avec_volume": avec_vol,
         "flux_total_jour_M": flux_total_j / 1e6,
         "segments": segs,
+        "companies": companies,
     }
