@@ -4,7 +4,8 @@ import pandas as pd
 from adapters.duckdb_repo import DuckDBRepo
 from core.autonomie import (
     part_compensable_mad, part_bancaire_mad, autonomie_pct, dependance_pct,
-    commission_bancaire_mois, roi_ouverture_propre,
+    commission_bancaire_mois, commissions_captables_mensuel,
+    roi_ouverture_propre,
     COMMISSION_BANCAIRE_PAR_MILLION_DEFAUT,
 )
 
@@ -169,7 +170,7 @@ def commissions_mensuelles(repo: DuckDBRepo,
                            taux_par_million: float
                            = COMMISSION_BANCAIRE_PAR_MILLION_DEFAUT,
                            jours_ouvres: int = 26) -> dict:
-    """Commissions bancaires mensuelles estimées (sur part bancaire résiduelle)."""
+    """(Legacy) commissions estimées sur besoin net."""
     k = kpis_autonomie(repo)
     return {
         "commissions_mois_total": commission_bancaire_mois(
@@ -178,4 +179,68 @@ def commissions_mensuelles(repo: DuckDBRepo,
             k["compensable_jour"], taux_par_million, jours_ouvres),
         "commissions_mois_bancaires_residuelles": commission_bancaire_mois(
             k["bancaire_jour"], taux_par_million, jours_ouvres),
+    }
+
+
+def volume_brut_mensuel_reseau(repo: DuckDBRepo, jours_ytd: int = 107) -> dict:
+    """Volume brut mensuel (cash-in + cash-out) du réseau entier.
+
+    Base : `volumes.cashin_ytd + cashout_ytd` agrégé sur le dernier snapshot.
+    Conversion YTD → mensuel via `jours_ytd` (défaut 107 pour snapshot 2026-04-18).
+    """
+    con = repo.con()
+    row = con.execute("""
+      WITH v_latest AS (
+        SELECT v.* FROM volumes v
+        JOIN (SELECT shop_id, MAX(snapshot_date) md FROM volumes GROUP BY 1) m
+          ON m.shop_id=v.shop_id AND m.md=v.snapshot_date
+      )
+      SELECT
+        COALESCE(SUM(cashin_ytd), 0) AS cashin_ytd,
+        COALESCE(SUM(cashout_ytd), 0) AS cashout_ytd,
+        COUNT(*) AS nb_shops
+      FROM v_latest
+    """).fetchone()
+    ytd = (row[0] or 0) + (row[1] or 0)
+    jour = ytd / max(jours_ytd, 1)
+    mois = jour * 30
+    return {
+        "cashin_ytd": float(row[0] or 0),
+        "cashout_ytd": float(row[1] or 0),
+        "volume_brut_ytd": float(ytd),
+        "volume_brut_jour": float(jour),
+        "volume_brut_mensuel": float(mois),
+        "nb_shops": int(row[2] or 0),
+    }
+
+
+def revenus_captables(repo: DuckDBRepo,
+                      taux_par_million: float
+                      = COMMISSION_BANCAIRE_PAR_MILLION_DEFAUT,
+                      jours_ytd: int = 107) -> dict:
+    """Revenus de commissions captables par CashPlus sur le volume brut réseau.
+
+    Le volume brut (cash-in + cash-out) est réparti entre :
+    - **captable interne** via le réseau propre = volume × taux_autonomie
+    - **capté par banques** = volume × taux_dépendance
+
+    Le taux autonomie vient du nb_shops conformes vs total (au niveau réseau).
+    """
+    vol = volume_brut_mensuel_reseau(repo, jours_ytd)
+    k = kpis_autonomie(repo)
+    aut = k["autonomie_pct"] / 100.0
+    total_mois = commissions_captables_mensuel(
+        vol["volume_brut_mensuel"], taux_par_million)
+    return {
+        "volume_brut_mensuel": vol["volume_brut_mensuel"],
+        "volume_brut_jour": vol["volume_brut_jour"],
+        "taux_par_million": taux_par_million,
+        "taux_pct": taux_par_million / 10000.0,
+        "commissions_total_mois": total_mois,
+        "commissions_total_an": total_mois * 12,
+        "captable_reseau_propre_mois": total_mois * aut,
+        "captable_reseau_propre_an": total_mois * aut * 12,
+        "capte_par_banques_mois": total_mois * (1 - aut),
+        "capte_par_banques_an": total_mois * (1 - aut) * 12,
+        "autonomie_pct": k["autonomie_pct"],
     }

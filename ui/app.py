@@ -13,7 +13,9 @@ sys.path.insert(0, str(ROOT))
 import streamlit as st
 from adapters.duckdb_repo import DuckDBRepo
 from services.scoring_service import kpis_globaux
-from services.autonomie_service import kpis_autonomie, commissions_mensuelles
+from services.autonomie_service import (
+    kpis_autonomie, commissions_mensuelles, revenus_captables,
+)
 
 DB_PATH = str(ROOT / "data" / "cashplus.db")
 
@@ -38,6 +40,7 @@ st.caption("Plateforme de pilotage de la dépendance bancaire et "
 # === 3 KPI North Star ===
 aut = kpis_autonomie(repo)
 com = commissions_mensuelles(repo)
+rev = revenus_captables(repo, taux_par_million=500, jours_ytd=107)
 
 st.subheader("North Star Metrics")
 n1, n2, n3 = st.columns(3)
@@ -80,19 +83,22 @@ with c2:
         c.metric("🎯 Cibles acquisition", co["cibles_acquisition"],
                  "multi × BMCE × NC")
 
-# === Potentiel économique ===
+# === Marché adressable commissions ===
 st.divider()
-st.subheader("💵 Potentiel d'économie mensuel (commissions bancaires)")
+st.subheader("💎 Commissions à capter — marché adressable (0,05 % du volume brut)")
+st.caption(f"Volume brut réseau : **{rev['volume_brut_mensuel']/1e9:.2f} Mds "
+           f"MAD/mois** (cash-in + cash-out). CashPlus capte une part à "
+           f"hauteur de son autonomie réseau.")
 p1, p2, p3 = st.columns(3)
-p1.metric("Commissions totales",
-          f"{com['commissions_mois_total']/1e3:.0f} k MAD/mois",
-          "sur l'ensemble du besoin")
-p2.metric("Déjà internalisé",
-          f"{com['commissions_mois_internalisables']/1e3:.0f} k MAD/mois",
-          help="Via le réseau propre actuel")
-p3.metric("Résiduel bancaire",
-          f"{com['commissions_mois_bancaires_residuelles']/1e3:.0f} k MAD/mois",
-          "à convertir via ouvertures propres",
+p1.metric("Total marché",
+          f"{rev['commissions_total_mois']/1e6:.1f} M MAD/mois",
+          f"{rev['commissions_total_an']/1e6:.0f} M/an")
+p2.metric("✅ Captables CashPlus",
+          f"{rev['captable_reseau_propre_mois']/1e6:.1f} M MAD/mois",
+          f"{rev['captable_reseau_propre_an']/1e6:.0f} M/an via réseau propre")
+p3.metric("🏦 Captées par banques",
+          f"{rev['capte_par_banques_mois']/1e6:.1f} M MAD/mois",
+          f"{rev['capte_par_banques_an']/1e6:.0f} M/an — à récupérer",
           delta_color="inverse")
 
 st.divider()

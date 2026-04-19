@@ -14,7 +14,8 @@ from adapters.duckdb_repo import DuckDBRepo
 from core.autonomie import COMMISSION_BANCAIRE_PAR_MILLION_DEFAUT
 from services.autonomie_service import (
     kpis_autonomie, dependance_par_banque, dependance_par_dr,
-    dependance_par_ville, commissions_mensuelles, companies_enrichies,
+    dependance_par_ville, commissions_mensuelles, revenus_captables,
+    companies_enrichies,
 )
 
 DB_PATH = str(ROOT / "data" / "cashplus.db")
@@ -36,11 +37,16 @@ st.caption("Finalité de la plateforme : réduire le recours aux banques "
 with st.sidebar:
     st.header("Paramètres commissions")
     taux = st.number_input(
-        "Commission bancaire (MAD par million retiré)",
-        0, 5000, int(COMMISSION_BANCAIRE_PAR_MILLION_DEFAUT), 50,
-        help="Estimatif — à calibrer auprès des banques partenaires"
+        "Taux commission (MAD par million)",
+        0, 10000, int(COMMISSION_BANCAIRE_PAR_MILLION_DEFAUT), 50,
+        help="500 = 0,05 % | 1000 = 0,1 % | 5000 = 0,5 % du volume brut"
     )
+    st.caption(f"Soit **{taux/10000:.3f} %** du volume brut (cash-in + cash-out)")
     jours_ouvres = st.slider("Jours ouvrés / mois", 20, 30, 26)
+    jours_ytd = st.number_input("Jours YTD (snapshot actuel)",
+                                30, 300, 107, 1,
+                                help="Nb jours couverts par cashin/cashout_ytd "
+                                     "— défaut 107 pour 2026-04-18")
     st.divider()
     if st.button("🔄 Vider cache"):
         st.cache_data.clear()
@@ -48,14 +54,15 @@ with st.sidebar:
 
 
 @st.cache_data(ttl=60)
-def load_all(taux, jours_ouvres):
+def load_all(taux, jours_ouvres, jours_ytd):
     return (kpis_autonomie(repo), dependance_par_banque(repo),
             dependance_par_dr(repo), dependance_par_ville(repo, n=30),
             commissions_mensuelles(repo, taux, jours_ouvres),
+            revenus_captables(repo, taux, jours_ytd),
             companies_enrichies(repo))
 
 
-k, dfb, dfd, dfv, com, dfco = load_all(taux, jours_ouvres)
+k, dfb, dfd, dfv, com, rev, dfco = load_all(taux, jours_ouvres, jours_ytd)
 
 # === 3 KPI North Star ===
 n1, n2, n3 = st.columns(3)
@@ -83,12 +90,33 @@ s1.metric("Companies 100 % compensables",
 s2.metric("Companies 0 % compensables",
           f"{k['nb_companies_0pct_compensables']:,}".replace(",", " "),
           "tous shops NC")
-s3.metric("Commissions mensuelles bancaires",
-          f"{com['commissions_mois_bancaires_residuelles']/1e3:.0f} k MAD",
-          help="Sur la part résiduelle non-internalisée")
-s4.metric("Potentiel d'économie mensuel",
-          f"{com['commissions_mois_internalisables']/1e3:.0f} k MAD",
-          "si 100 % compensable")
+s3.metric("Volume brut mensuel",
+          f"{rev['volume_brut_mensuel']/1e9:.2f} Mds MAD",
+          f"cash-in + cash-out réseau")
+s4.metric("Volume brut journalier",
+          f"{rev['volume_brut_jour']/1e6:.0f} M MAD/j",
+          f"{k['nb_companies_total']} companies")
+
+# === Revenus captables (marché adressable commissions) ===
+st.divider()
+st.subheader(f"💰 Commissions à capter — marché adressable "
+             f"({rev['taux_pct']:.3f} % du volume brut)")
+st.caption("Hypothèse : CashPlus peut capter sur le volume brut qui transite "
+           "(cash-in + cash-out), pas seulement le déficit net. Base de "
+           "calcul du business case d'internalisation.")
+
+r1, r2, r3 = st.columns(3)
+r1.metric("💎 Commissions totales (marché)",
+          f"{rev['commissions_total_mois']/1e6:.2f} M MAD/mois",
+          f"{rev['commissions_total_an']/1e6:.0f} M/an")
+r2.metric("✅ Captables par CashPlus (réseau propre)",
+          f"{rev['captable_reseau_propre_mois']/1e6:.2f} M MAD/mois",
+          f"{rev['captable_reseau_propre_an']/1e6:.0f} M/an — "
+          f"{rev['autonomie_pct']:.0f} %")
+r3.metric("🏦 Captées par les banques",
+          f"{rev['capte_par_banques_mois']/1e6:.2f} M MAD/mois",
+          f"{rev['capte_par_banques_an']/1e6:.0f} M/an",
+          delta_color="inverse")
 
 st.divider()
 

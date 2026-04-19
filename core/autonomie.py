@@ -65,6 +65,23 @@ def commission_bancaire_mois(volume_bancaire_jour: float,
     return (volume_bancaire_jour / 1_000_000.0) * taux_par_million * jours_ouvres_mois
 
 
+def commissions_captables_mensuel(volume_brut_mensuel: float,
+                                   taux_par_million: float
+                                   = COMMISSION_BANCAIRE_PAR_MILLION_DEFAUT
+                                   ) -> float:
+    """Commissions que CashPlus peut capter sur un volume brut mensuel.
+
+    volume_brut_mensuel : total cash-in + cash-out transitant dans le mois
+    taux_par_million    : 500 MAD/M = 0.05 % | 1000 = 0.1 % | 5000 = 0.5 %
+
+    Ce volume inclut tous les flux (dépôts, retraits) pas seulement le déficit
+    net → marché adressable beaucoup plus large que la compensation nette.
+    """
+    if volume_brut_mensuel <= 0:
+        return 0.0
+    return volume_brut_mensuel / 1_000_000.0 * taux_par_million
+
+
 def roi_ouverture_propre(gain_compensation_jour: float,
                          taux_commission_par_million: float
                          = COMMISSION_BANCAIRE_PAR_MILLION_DEFAUT,

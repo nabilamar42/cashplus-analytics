@@ -1,7 +1,16 @@
 from core.autonomie import (
     part_compensable_mad, part_bancaire_mad, autonomie_pct, dependance_pct,
-    commission_bancaire_mois, roi_ouverture_propre,
+    commission_bancaire_mois, commissions_captables_mensuel,
+    roi_ouverture_propre,
 )
+
+
+def test_commissions_captables():
+    # 9.5 Mds × 500/M = 4,77 M/mois
+    c = commissions_captables_mensuel(9_540_000_000, 500)
+    assert abs(c - 4_770_000) < 1
+    # Zero volume
+    assert commissions_captables_mensuel(0, 500) == 0.0
 
 
 def test_compensable_ratio():
