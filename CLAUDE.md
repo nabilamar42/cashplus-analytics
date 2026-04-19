@@ -1,11 +1,25 @@
 # CashPlus — Plateforme CashManagement
 
-## Contexte
+## Vision produit (validée Comex)
 
-Plateforme de pilotage de l'autonomie cash du réseau CashPlus (4 560 shops franchisés,
-701 agences propres, Maroc). Objectif Comex : réduire la dépendance BMCE (47,8 %) en
-construisant un modèle d'alimentation directe via agences propres + CIT, et identifier
-les **Companies** (sociétés juridiques franchisées) à convertir en propre.
+**Finalité** : réduire la dépendance aux banques commerciales (toutes confondues)
+en internalisant la compensation cash via le réseau des agences propres.
+
+**Deux objectifs stratégiques liés** :
+1. Réduire le recours aux banques pour les besoins opérationnels du réseau franchisé
+2. Compenser les Companies franchisées via le réseau propre (rééquilibrage cash
+   à l'échelle du réseau)
+
+La géographie (conformité distance/temps) est un **prérequis opérationnel**, pas
+une fin en soi. La vraie métrique business est la **part bancaire résiduelle** :
+un shop conforme = un shop compensable en interne ; un shop NC = dépendance
+bancaire. Le score Comex pondère la priorité d'acquisition par la part bancaire
+non internalisable.
+
+## North Star (snapshot Mars 2026)
+- 🎯 **Autonomie réseau 79,8 %** (objectif 90 %)
+- 🏦 **Dépendance bancaire 20,2 %** = 26,4 M MAD/j
+- 💰 Besoin total 131 M MAD/j | 3 374 companies | 2 785 (82 %) 100 % compensables
 
 ## Domain model (IMPORTANT)
 
@@ -34,6 +48,7 @@ cashplus-analytics/
 │   ├── company.py           # score_acquisition(nb_shops, nc, banque, flux)
 │   ├── dotation.py          # dotation_cible + BESOIN_OPERATIONS_PROPRE_DEFAUT (250k MAD/j)
 │   ├── depot.py             # haversine, TSP nearest-neighbor, coûts CIT ext / convoyeur int
+│   ├── autonomie.py         # part_compensable/bancaire, commission, ROI ouverture
 │   └── repository.py        # Protocols (AgenceRepo, VolumeRepo, OsrmClient…)
 ├── adapters/                # infrastructure
 │   ├── duckdb_repo.py       # DuckDB + migration is_depot sur agences
@@ -44,27 +59,30 @@ cashplus-analytics/
 │   ├── company_service.py   # build_companies_table, list_companies, cibles_acquisition
 │   ├── dotation_service.py  # dotations_toutes_propres + _par_company + _propre_x_company (pivot)
 │   ├── depot_service.py     # auto_select (MaxMin multi-dépôts/ville), network_depots, TSP
+│   ├── autonomie_service.py # companies_enrichies, kpis_autonomie, dependance_par_*
 │   ├── simulation_service.py
 │   └── import_service.py    # rebuild_companies auto + résolution code_propre
 ├── ui/                      # Streamlit
-│   ├── app.py               # KPIs Shops + KPIs Companies
+│   ├── app.py               # homepage — 3 KPIs North Star + potentiel économie
 │   └── pages/
-│       ├── 1_🗺️_Carte.py              # franchisés + propres + polygones Companies
-│       ├── 2_💰_Dotations.py          # Pivot Propre×Company primaire (ops + compensation)
-│       ├── 3_📊_Ouvertures_Propres.py # villes prioritaires (scoring ouvertures)
-│       ├── 4_🧪_Simulateur.py
-│       ├── 5_📥_Import_Export.py      # upload + rebuild + exports
-│       ├── 6_🏢_Companies.py          # liste + cibles acquisition + détail
-│       └── 7_🏦_Depots.py             # hub-and-spoke (N dépôts/ville, OSRM, TCO, TSP)
+│       ├── 0_🎯_Dependance_Bancaire.py # DASHBOARD COMEX — autonomie, banque, DR, villes
+│       ├── 1_🗺️_Carte.py
+│       ├── 2_💰_Dotations.py          # Pivot Propre×Company (ops + compensation)
+│       ├── 3_📊_Ouvertures_Propres.py # villes prioritaires ouverture
+│       ├── 4_🧪_Simulateur.py         # NC + MAD internalisable + ROI (CAPEX/OPEX/commissions)
+│       ├── 5_📥_Import_Export.py
+│       ├── 6_🏢_Companies.py          # enrichie : part compensable/bancaire, priorité Comex
+│       └── 7_🏦_Depots.py             # hub-and-spoke
 ├── cli/
 │   ├── build_initial_db.py  # ingestion totale + build_companies_table
 │   └── recalc_matrix.py     # OSRM 4560×701 + rebuild companies
-├── tests/                   # pytest : 31/31 passent
+├── tests/                   # pytest : 37/37 passent
 │   ├── test_scoring.py       (8)
 │   ├── test_rattachement.py  (7)
 │   ├── test_dotation.py      (4)
 │   ├── test_company.py       (5)
-│   └── test_depot.py        (10)  # haversine, passages, coûts ext/int, TSP
+│   ├── test_depot.py        (10)
+│   └── test_autonomie.py     (6)  # compensable/bancaire, commission, ROI
 ├── data/cashplus.db
 └── data_source/             # BASE C+, banques, rapports Excel
 ```
@@ -103,6 +121,11 @@ RAYON_DEPOT_KM           = 40.0       # convoyeur interne CashPlus
 COUT_CIT_PAR_PASSAGE     = 150.0      # MAD — Brinks/G4S externe
 COUT_CONVOYEUR_KM        = 4.0        # MAD/km — interne (carburant+véhicule)
 COUT_CONVOYEUR_FIXE      = 500.0      # MAD/tournée — salaires convoyeur+garde
+
+# Autonomie / ROI ouverture propre
+CAPEX_OUVERTURE_PROPRE   = 200_000    # MAD — local + coffre + aménagement
+OPEX_ANNUEL_PROPRE       = 120_000    # MAD/an — loyer + salaires + fluides + sécurité
+COMMISSION_BANCAIRE      = 500        # MAD par million MAD retiré (calibrable)
 ```
 
 ## KPIs courants (snapshot 2026-04-18)
@@ -191,15 +214,28 @@ ssh ubuntu@51.77.213.131 'cd cashplus-analytics && git pull && sudo systemctl re
 - [x] 3.3 — TSP nearest-neighbor par dépôt + tracé tournée sur carte
 - [x] 3.4 — Distances OSRM optionnelles (fallback haversine)
 - [x] 3.5 — OPEX convoyeur interne (km + fixe) séparé du CIT externe
-- [x] 3.6 — Override manuel multi-sélection par ville (plusieurs dépôts/ville possibles)
-- [x] 3.7 — Besoin opérationnel propre 250k/j (cash guichet) intégré
+- [x] 3.6 — Override manuel multi-sélection par ville
+- [x] 3.7 — Besoin opérationnel propre (cash guichet) intégré
+- [x] 3.8 — Source réelle compensation : balances Company/jour (Odoo Q1+Mars)
+- [x] 3.9 — Source réelle ops propre : balances Propre/jour (Mars 2026)
 
-### Phase 4 — Automatisation (à venir)
+### Phase 4 — Vision produit Comex (fait)
+- [x] 4.1 — Reframing autonomie cash comme North Star (≠ conformité géo)
+- [x] 4.2 — `core/autonomie.py` + `services/autonomie_service.py` + 6 tests
+- [x] 4.3 — Dashboard **🎯 Dépendance bancaire** (banque/DR/ville)
+- [x] 4.4 — Homepage refondue (3 KPI North Star)
+- [x] 4.5 — Simulateur enrichi (ROI CAPEX/OPEX/commissions + Δ autonomie)
+- [x] 4.6 — Page Companies enrichie (part compensable/bancaire + priorité Comex)
+
+### Phase 5 — Automatisation (à venir)
+
+### Phase 5 — Automatisation (à venir)
 - [ ] Pipeline OSM trimestriel
-- [ ] API `/api/conformite` pour autres outils internes
+- [ ] API `/api/conformite`, `/api/autonomie` pour autres outils internes
 - [ ] Authentification multi-utilisateurs (remplacer basic auth)
 - [ ] Scénarios nommés persistés (table `scenarios` déjà présente)
 - [ ] Planning CIT J+7 par dépôt (dashboard opérateur)
+- [ ] Calibrage taux commission bancaire auprès de BP/BMCE/CIH
 
 ## Contacts
 

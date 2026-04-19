@@ -492,4 +492,70 @@ COUT_CONVOYEUR_FIXE_DEFAUT  = 500.0   # MAD/tournée — salaires convoyeur+gard
 
 ---
 
+## Amendement v2.0 (2026-04-19) — Phase 4 Vision produit Comex
+
+### Reframing stratégique
+La conformité géographique (50 km / 30 min) était le moyen, pas la fin.
+**Finalité réelle** : réduire la dépendance aux banques commerciales en
+internalisant la compensation via le réseau propre. Un shop conforme =
+compensable en interne. Un shop NC = dépendance bancaire résiduelle.
+
+### MVP Direction — 3 questions business
+1. **Quelle est notre dépendance bancaire actuelle ?** (dashboard 🎯 Dépendance)
+2. **Quelles companies pouvons-nous compenser via réseau propre ?** (page 🏢 Companies enrichie)
+3. **Où ouvrir des propres pour maximiser l'autonomie ?** (🧪 Simulateur refondu)
+
+### Nouveau module `core/autonomie.py`
+```python
+part_compensable_mad = besoin × (nb_shops_conformes / nb_shops_total)
+part_bancaire_mad    = besoin − part_compensable
+autonomie_pct        = compensable_total / besoin_total × 100
+commission_bancaire  = volume_jour × taux_par_million / 1_000_000 × jours_ouvres
+roi_ouverture_propre = gain_commissions_an − opex ; break_even_mois = capex / net × 12
+```
+
+### Constantes Phase 4 (paramétrables UI)
+- `CAPEX_OUVERTURE_PROPRE_MAD = 200 000` (local + coffre + aménagement)
+- `OPEX_ANNUEL_PROPRE_MAD = 120 000` (loyer + salaires + fluides + sécurité)
+- `COMMISSION_BANCAIRE_PAR_MILLION_DEFAUT = 500` MAD/M (à calibrer banques)
+
+### Service `services/autonomie_service.py`
+- `companies_enrichies(repo)` — ajoute colonnes part_compensable, part_bancaire, autonomie_pct, priorite_comex
+- `kpis_autonomie(repo)` — 3 North Star (besoin total, compensable, bancaire) + % + companies 100/0 %
+- `dependance_par_banque / _par_dr / _par_ville(n)` — répartitions agrégées
+- `impact_ouverture_propre(lat, lon, seuil_km)` — MAD internalisable + companies impactées + Δ autonomie
+- `commissions_mensuelles(taux, jours_ouvres)` — commissions mensuelles estimées
+
+### Pages UI
+- **Homepage (`ui/app.py`)** — 3 KPI North Star + potentiel économie mensuel + navigation
+- **🎯 Dépendance bancaire (page 0)** — dashboard Comex : KPIs, répartition par banque (graphe empilé compensable/bancaire), par DR, top 30 villes opportunités, export Excel 5 onglets
+- **🧪 Simulateur (page 4)** — volet financier ajouté : companies impactées, MAD internalisable/j et /an, Δ autonomie, ROI (CAPEX/OPEX/gain commissions/break-even/ROI 3 ans)
+- **🏢 Companies (page 6)** — colonnes Compensable/j, Bancaire/j, Autonomie %, Priorité Comex (tri par priorité = score × part bancaire)
+
+### Tests
+- `tests/test_autonomie.py` (6 tests) : ratios, edge cases zéros, commission, ROI positif/négatif
+- **Total plateforme : 37 tests verts**
+
+### KPIs actuels (Mars 2026)
+| Métrique | Valeur |
+|---|---|
+| Autonomie réseau | **79,8 %** |
+| Dépendance bancaire | **20,2 %** (26,4 M MAD/j) |
+| Besoin total | 131 M MAD/j |
+| Companies 100 % compensables | 2 785 / 3 374 (82 %) |
+| Companies 0 % compensables | 492 |
+| Commissions résiduelles bancaires (500 MAD/M × 26 j) | 343 k MAD/mois |
+| Commissions potentielles totales | 1 703 k MAD/mois |
+
+### Top banques par dépendance bancaire résiduelle
+1. BP — 11,5 M MAD/j (autonomie 65,9 %)
+2. BMCE — 9,3 M MAD/j (autonomie 84,6 %)
+3. Attijari — 2,7 M MAD/j (autonomie 65,8 %)
+4. CIH — 2,3 M MAD/j (autonomie 91,7 %)
+5. CDM — 0,6 M MAD/j (autonomie 55,7 %)
+
+→ **BP et CDM** sont les banques à faible autonomie — cibles prioritaires de conversion.
+
+---
+
 **Fin du document.**
