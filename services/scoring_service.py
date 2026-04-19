@@ -16,7 +16,7 @@ def _franchises_df(repo: DuckDBRepo) -> pd.DataFrame:
     con = repo.con()
     df = con.execute("""
       SELECT a.code, a.nom, a.ville, a.dr, a.rr, a.superviseur, a.banque,
-             a.lat, a.lon,
+             a.societe, a.lat, a.lon,
              c.code_propre, c.distance_km, c.duree_min, c.conforme,
              v.cashin_ytd, v.cashout_ytd, v.solde_jour, v.flux_jour
       FROM agences a

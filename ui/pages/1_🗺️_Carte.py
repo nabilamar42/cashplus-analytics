@@ -14,6 +14,30 @@ import pandas as pd
 
 from adapters.duckdb_repo import DuckDBRepo
 from services.scoring_service import _franchises_df, propre_detail
+from services.company_service import list_companies
+
+
+def _convex_hull(points: list[list[float]]) -> list[list[float]]:
+    """Graham scan convex hull. Returns list of [lat, lon] in order."""
+    pts = sorted(set(map(tuple, points)))
+    if len(pts) <= 2:
+        return [list(p) for p in pts]
+
+    def cross(O, A, B):
+        return (A[0] - O[0]) * (B[1] - O[1]) - (A[1] - O[1]) * (B[0] - O[0])
+
+    lower, upper = [], []
+    for p in pts:
+        while len(lower) >= 2 and cross(lower[-2], lower[-1], p) <= 0:
+            lower.pop()
+        lower.append(p)
+    for p in reversed(pts):
+        while len(upper) >= 2 and cross(upper[-2], upper[-1], p) <= 0:
+            upper.pop()
+        upper.append(p)
+    hull = lower[:-1] + upper[:-1]
+    hull.append(hull[0])
+    return [list(p) for p in hull]
 
 DB_PATH = str(ROOT / "data" / "cashplus.db")
 
@@ -29,6 +53,12 @@ def get_repo():
 def load_franchises():
     repo = get_repo()
     return _franchises_df(repo)
+
+
+@st.cache_data(ttl=300)
+def load_companies():
+    repo = get_repo()
+    return list_companies(repo)
 
 
 @st.cache_data(ttl=300)
@@ -50,6 +80,7 @@ st.title("🗺️ Carte du réseau CashPlus")
 repo = get_repo()
 df = load_franchises()
 propres = load_propres()
+companies_df = load_companies()
 
 # --- Filtres ---
 with st.sidebar:
@@ -67,6 +98,17 @@ with st.sidebar:
                            index=0)
     show_propres = st.checkbox("Afficher agences propres", value=True)
     show_franch = st.checkbox("Afficher franchisés", value=True)
+
+    st.divider()
+    st.subheader("🏢 Filtre Company")
+    co_names = sorted(companies_df["societe"].dropna().unique())
+    company_sel = st.multiselect(
+        "Sélectionner une ou plusieurs Companies",
+        options=co_names,
+        default=[],
+        placeholder="Rechercher une société…",
+    )
+    show_company_polygon = st.checkbox("Tracer polygone convexe", value=True)
 
 # Application filtres
 d = df[df["dr"].isin(dr_sel)] if dr_sel else df
@@ -146,6 +188,63 @@ if show_franch:
             popup=folium.Popup(popup_html, max_width=350),
             tooltip=f"{r['nom']} — {r['segment']}",
         ).add_to(fr_cluster)
+
+# --- Company layer ---
+if company_sel:
+    COMPANY_COLORS = [
+        "#e377c2", "#17becf", "#8c564b", "#2ca02c", "#9467bd",
+        "#bcbd22", "#ff9896", "#aec7e8", "#ffbb78", "#98df8a",
+    ]
+    co_group = folium.FeatureGroup(name="Companies sélectionnées", show=True)
+    for idx, societe in enumerate(company_sel):
+        color = COMPANY_COLORS[idx % len(COMPANY_COLORS)]
+        shops = df[df["societe"] == societe]
+        co_row = companies_df[companies_df["societe"] == societe]
+        if shops.empty:
+            continue
+        coords_valid = shops[["lat", "lon"]].dropna()
+        # Draw convex hull polygon if ≥3 points
+        if show_company_polygon and len(coords_valid) >= 3:
+            try:
+                pts = coords_valid.values.tolist()
+                hull_pts = _convex_hull(pts)
+                co_meta = co_row.iloc[0] if not co_row.empty else None
+                popup_txt = f"<b>{societe}</b><br>"
+                if co_meta is not None:
+                    flux_fmt = f"{co_meta['flux_total_jour']:,.0f}".replace(",", " ")
+                    popup_txt += (
+                        f"Shops: {int(co_meta['nb_shops'])} | "
+                        f"Banque: {co_meta['banque'] or '—'}<br>"
+                        f"Flux/j: {flux_fmt} MAD<br>"
+                        f"Score acq.: {co_meta['score_acquisition']:.2f}"
+                    )
+                folium.Polygon(
+                    locations=hull_pts,
+                    color=color, weight=2, fill=True,
+                    fill_color=color, fill_opacity=0.12,
+                    popup=folium.Popup(popup_txt, max_width=300),
+                    tooltip=f"Company : {societe}",
+                ).add_to(co_group)
+            except Exception:
+                pass
+        # Highlight each shop of the company with a star-like larger marker
+        for _, r in shops.iterrows():
+            if pd.isna(r["lat"]) or pd.isna(r["lon"]):
+                continue
+            folium.CircleMarker(
+                location=[r["lat"], r["lon"]],
+                radius=8,
+                color="black", weight=1.5,
+                fill=True, fill_color=color, fill_opacity=0.95,
+                tooltip=f"★ {r['nom']} ({societe})",
+                popup=folium.Popup(
+                    f"<b>★ {r['nom']}</b><br>Company: <b>{societe}</b><br>"
+                    f"Banque: {r.get('banque') or '—'} | Segment: {r.get('segment','—')}<br>"
+                    f"Conforme: {'✅' if r.get('conforme') else '❌'}",
+                    max_width=300,
+                ),
+            ).add_to(co_group)
+    co_group.add_to(m)
 
 folium.LayerControl().add_to(m)
 
