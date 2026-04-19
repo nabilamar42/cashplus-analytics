@@ -23,6 +23,7 @@ from core.depot import (
     COUT_CONVOYEUR_KM_DEFAUT, COUT_CONVOYEUR_FIXE_DEFAUT,
     VILLES_DEPOTS_DEFAUT,
 )
+from core.dotation import BESOIN_OPERATIONS_PROPRE_DEFAUT
 from services.depot_service import (
     auto_select_depots, list_depots, set_depot_manuel, network_depots,
     propres_de_ville,
@@ -59,6 +60,13 @@ with st.sidebar:
                                    float(COUT_CONVOYEUR_KM_DEFAUT), 0.5)
     cout_conv_fixe = st.number_input("Coût fixe / tournée (MAD)", 0, 5000,
                                      int(COUT_CONVOYEUR_FIXE_DEFAUT), 50)
+
+    st.subheader("Besoin ops propre")
+    besoin_ops = st.number_input(
+        "Cash guichet / propre / jour (MAD)",
+        0, 2_000_000, int(BESOIN_OPERATIONS_PROPRE_DEFAUT), 10_000,
+        help="Cash-in/cash-out guichet hors compensation franchisés",
+    )
 
     st.divider()
     use_osrm = st.checkbox("📍 Distances routes OSRM",
@@ -123,17 +131,17 @@ if depots.empty:
 
 
 @st.cache_data(ttl=60)
-def compute_net(rayon, cout_pass, jours, cout_km, cout_fixe, use_osrm):
+def compute_net(rayon, cout_pass, jours, cout_km, cout_fixe, use_osrm, ops):
     return network_depots(
         repo, rayon_km=rayon, cout_par_passage=cout_pass,
         jours_couverture=jours, cout_conv_km=cout_km, cout_conv_fixe=cout_fixe,
-        use_osrm=use_osrm,
+        use_osrm=use_osrm, besoin_ops_propre=ops,
     )
 
 
 with st.spinner("Calcul réseau" + (" (OSRM)" if use_osrm else "")):
     net = compute_net(rayon, cout_passage, jours, cout_conv_km,
-                      cout_conv_fixe, use_osrm)
+                      cout_conv_fixe, use_osrm, besoin_ops)
 
 # --- KPIs TCO ---
 st.subheader("💰 TCO mensuel — CIT externe + convoyeur interne")

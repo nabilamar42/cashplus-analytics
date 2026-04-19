@@ -2,7 +2,7 @@
 from __future__ import annotations
 import pandas as pd
 from adapters.duckdb_repo import DuckDBRepo
-from core.dotation import dotation_cible
+from core.dotation import dotation_cible, BESOIN_OPERATIONS_PROPRE_DEFAUT
 
 
 def dotations_toutes_propres(
@@ -10,14 +10,18 @@ def dotations_toutes_propres(
     jours_couverture: int = 2,
     buffer_pct: float = 20.0,
     saisonnalite_pct: float = 0.0,
+    besoin_ops_propre: float = BESOIN_OPERATIONS_PROPRE_DEFAUT,
 ) -> pd.DataFrame:
-    """DataFrame : nb franchisés rattachés + besoin/jour + dotation cible par propre."""
+    """DataFrame par propre : besoin opérationnel + compensation franchisés.
+
+    besoin_jour = besoin_ops_propre (cash-in/out guichet) + compensation franchisés (|solde<0|).
+    """
     con = repo.con()
     df = con.execute("""
       SELECT p.code, p.nom, p.ville, p.dr, p.societe,
              COUNT(c.code_franchise) FILTER (WHERE c.conforme=true) AS nb_rattaches,
              COALESCE(SUM(CASE WHEN c.conforme=true AND v.solde_jour < 0
-                               THEN -v.solde_jour ELSE 0 END), 0) AS besoin_jour
+                               THEN -v.solde_jour ELSE 0 END), 0) AS besoin_compensation_jour
       FROM agences p
       LEFT JOIN conformite c ON c.code_propre = p.code
       LEFT JOIN (
@@ -28,7 +32,8 @@ def dotations_toutes_propres(
       WHERE p.type = 'Propre'
       GROUP BY p.code, p.nom, p.ville, p.dr, p.societe
     """).df()
-
+    df["besoin_ops_jour"] = float(besoin_ops_propre)
+    df["besoin_jour"] = df["besoin_ops_jour"] + df["besoin_compensation_jour"]
     df["dotation_cible"] = df["besoin_jour"].apply(
         lambda b: dotation_cible(b, jours_couverture, buffer_pct, saisonnalite_pct)
     )
@@ -70,11 +75,13 @@ def dotations_propre_x_company(
     jours_couverture: int = 2,
     buffer_pct: float = 20.0,
     saisonnalite_pct: float = 0.0,
+    besoin_ops_propre: float = BESOIN_OPERATIONS_PROPRE_DEFAUT,
 ) -> pd.DataFrame:
-    """Pivot opérationnel : pour chaque agence propre, liste des Companies
-    servies + montant cash quotidien + dotation CIT.
+    """Pivot opérationnel Propre × Company + ligne synthétique "Opérations propre".
 
-    Rattachement via conformite.code_propre (shops conformes uniquement).
+    Pour chaque propre active, une ligne `societe = "(Opérations propre)"` avec
+    `besoin_jour = besoin_ops_propre` est injectée en plus des compensations
+    franchisés — reflète le besoin cash au guichet pour les cash-in/cash-out.
     """
     con = repo.con()
     df = con.execute("""
@@ -99,6 +106,17 @@ def dotations_propre_x_company(
       GROUP BY p.code, p.nom, p.ville, p.dr, a.societe
       HAVING SUM(CASE WHEN v.solde_jour < 0 THEN -v.solde_jour ELSE 0 END) > 0
     """).df()
+
+    # Injection de la ligne "Opérations propre" pour chaque propre active
+    if besoin_ops_propre > 0 and not df.empty:
+        propres_head = df[["propre_code", "propre_nom", "propre_ville",
+                           "propre_dr"]].drop_duplicates()
+        ops = propres_head.copy()
+        ops["societe"] = "(Opérations propre)"
+        ops["nb_shops"] = 0
+        ops["besoin_jour"] = float(besoin_ops_propre)
+        df = pd.concat([ops, df], ignore_index=True)
+
     df["dotation_cible"] = df["besoin_jour"].apply(
         lambda b: dotation_cible(b, jours_couverture, buffer_pct, saisonnalite_pct)
     )
@@ -106,9 +124,14 @@ def dotations_propre_x_company(
 
 
 def total_reseau(df_dotations: pd.DataFrame) -> dict:
-    return {
+    d = {
         "total_besoin_jour": float(df_dotations["besoin_jour"].sum()),
         "total_dotation": float(df_dotations["dotation_cible"].sum()),
         "nb_propres_actives": int((df_dotations["nb_rattaches"] > 0).sum()),
         "nb_propres_vides": int((df_dotations["nb_rattaches"] == 0).sum()),
     }
+    if "besoin_ops_jour" in df_dotations.columns:
+        d["total_besoin_ops"] = float(df_dotations["besoin_ops_jour"].sum())
+        d["total_besoin_compensation"] = float(
+            df_dotations.get("besoin_compensation_jour", 0).sum())
+    return d

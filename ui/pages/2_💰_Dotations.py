@@ -19,6 +19,7 @@ from services.dotation_service import (
     dotations_propre_x_company, dotations_par_company,
     dotations_toutes_propres, total_reseau,
 )
+from core.dotation import BESOIN_OPERATIONS_PROPRE_DEFAUT
 
 DB_PATH = str(ROOT / "data" / "cashplus.db")
 st.set_page_config(page_title="Dotations — CashPlus", layout="wide")
@@ -43,6 +44,12 @@ with st.sidebar:
                            help="Marge pour volatilité intra-jour")
     saison_pct = st.slider("Saisonnalité (%)", 0, 100, 0,
                            help="Boost fin de mois / Aïd / aides sociales")
+    besoin_ops = st.number_input(
+        "Besoin opérations propre (MAD/jour)",
+        min_value=0, max_value=2_000_000,
+        value=int(BESOIN_OPERATIONS_PROPRE_DEFAUT), step=10_000,
+        help="Cash-in/cash-out guichet — hors compensation franchisés"
+    )
     st.divider()
     st.markdown("**Formule**")
     st.code("dotation = besoin_jour\n          × jours_couverture\n"
@@ -55,8 +62,8 @@ with st.sidebar:
 
 
 @st.cache_data(ttl=60)
-def load_pivot(j, b, s):
-    return dotations_propre_x_company(repo, j, b, s)
+def load_pivot(j, b, s, ops):
+    return dotations_propre_x_company(repo, j, b, s, besoin_ops_propre=ops)
 
 
 @st.cache_data(ttl=60)
@@ -65,14 +72,14 @@ def load_co(j, b, s):
 
 
 @st.cache_data(ttl=60)
-def load_propres_flat(j, b, s):
-    return dotations_toutes_propres(repo, j, b, s)
+def load_propres_flat(j, b, s, ops):
+    return dotations_toutes_propres(repo, j, b, s, besoin_ops_propre=ops)
 
 
 # ============================================================
 # VUE PRIMAIRE : pivot Propre × Company
 # ============================================================
-piv = load_pivot(jours, buffer_pct, saison_pct)
+piv = load_pivot(jours, buffer_pct, saison_pct, besoin_ops)
 
 # Résumé par propre
 per_propre = piv.groupby(
@@ -229,7 +236,7 @@ with st.expander("🏢 Vue Companies (négociation bancaire)", expanded=False):
 
 with st.expander("🏦 Vue Propres (flat — reporting macro)", expanded=False):
     st.caption("Dotation totale par propre sans décomposition Company.")
-    dfp = load_propres_flat(jours, buffer_pct, saison_pct)
+    dfp = load_propres_flat(jours, buffer_pct, saison_pct, besoin_ops)
     tot = total_reseau(dfp)
     p1, p2, p3 = st.columns(3)
     p1.metric("Propres actives", tot["nb_propres_actives"])

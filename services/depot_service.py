@@ -8,6 +8,7 @@ from core.depot import (
     RAYON_DEPOT_KM_DEFAUT, COUT_CIT_PAR_PASSAGE_DEFAUT, VILLES_DEPOTS_DEFAUT,
     COUT_CONVOYEUR_KM_DEFAUT, COUT_CONVOYEUR_FIXE_DEFAUT,
 )
+from core.dotation import BESOIN_OPERATIONS_PROPRE_DEFAUT
 
 _NORMALISE = {
     "CASABLANCA": "CASABLANCA", "CASA": "CASABLANCA",
@@ -139,6 +140,7 @@ def network_depots(
     cout_conv_km: float = COUT_CONVOYEUR_KM_DEFAUT,
     cout_conv_fixe: float = COUT_CONVOYEUR_FIXE_DEFAUT,
     use_osrm: bool = False,
+    besoin_ops_propre: float = BESOIN_OPERATIONS_PROPRE_DEFAUT,
 ) -> dict:
     """Réseau hub-and-spoke avec TCO complet (CIT externe + convoyeur interne).
 
@@ -147,6 +149,11 @@ def network_depots(
     """
     depots = list_depots(repo)
     propres = _load_propres_full(repo)
+    # Ajoute le besoin opérationnel de la propre (cash-in/out guichet)
+    propres["besoin_compensation_jour"] = propres["besoin_jour"]
+    propres["besoin_ops_jour"] = float(besoin_ops_propre)
+    propres["besoin_jour"] = (propres["besoin_ops_jour"]
+                              + propres["besoin_compensation_jour"])
 
     # Assignation propre → dépôt le plus proche (haversine par défaut)
     # + calcul tournée par dépôt
