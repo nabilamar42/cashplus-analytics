@@ -84,27 +84,36 @@ def dotations_propre_x_company(
     franchisés — reflète le besoin cash au guichet pour les cash-in/cash-out.
     """
     con = repo.con()
+    # Répartition prorata : besoin Company réparti sur ses propres de rattachement
+    # au prorata du nombre de shops conformes rattachés à chaque propre.
     df = con.execute("""
-      WITH v_latest AS (
-        SELECT v.* FROM volumes v
-        JOIN (SELECT shop_id, MAX(snapshot_date) md FROM volumes GROUP BY 1) m
-          ON m.shop_id=v.shop_id AND m.md=v.snapshot_date
+      WITH shops_conformes AS (
+        SELECT a.code AS shop_code, a.societe, c.code_propre
+        FROM agences a
+        JOIN conformite c ON c.code_franchise = a.code AND c.conforme = true
+        WHERE a.type = 'Franchisé' AND a.societe IS NOT NULL
+      ),
+      co_totals AS (
+        SELECT societe, COUNT(*) AS nb_total_shops_conformes
+        FROM shops_conformes GROUP BY societe
+      ),
+      pair_counts AS (
+        SELECT code_propre, societe, COUNT(*) AS nb_shops_ici
+        FROM shops_conformes GROUP BY code_propre, societe
       )
       SELECT
-        p.code  AS propre_code,
-        p.nom   AS propre_nom,
-        p.ville AS propre_ville,
-        p.dr    AS propre_dr,
-        a.societe,
-        COUNT(a.code) AS nb_shops,
-        SUM(CASE WHEN v.solde_jour < 0 THEN -v.solde_jour ELSE 0 END) AS besoin_jour
-      FROM agences p
-      JOIN conformite c ON c.code_propre = p.code AND c.conforme = true
-      JOIN agences a ON a.code = c.code_franchise
-      LEFT JOIN v_latest v ON v.shop_id = a.code
-      WHERE p.type = 'Propre' AND a.societe IS NOT NULL
-      GROUP BY p.code, p.nom, p.ville, p.dr, a.societe
-      HAVING SUM(CASE WHEN v.solde_jour < 0 THEN -v.solde_jour ELSE 0 END) > 0
+        p.code  AS propre_code, p.nom AS propre_nom,
+        p.ville AS propre_ville, p.dr AS propre_dr,
+        pc.societe,
+        pc.nb_shops_ici AS nb_shops,
+        COALESCE(co.besoin_cash_jour, 0) *
+          (pc.nb_shops_ici * 1.0 / ct.nb_total_shops_conformes) AS besoin_jour
+      FROM pair_counts pc
+      JOIN co_totals ct ON ct.societe = pc.societe
+      JOIN agences p ON p.code = pc.code_propre
+      LEFT JOIN companies co ON co.societe = pc.societe
+      WHERE p.type = 'Propre'
+        AND COALESCE(co.besoin_cash_jour, 0) > 0
     """).df()
 
     # Injection de la ligne "Opérations propre" pour chaque propre active

@@ -4,6 +4,7 @@ from datetime import date
 from adapters.duckdb_repo import DuckDBRepo
 from adapters.excel_importer import (
     load_base_agences, load_rapport_solde, load_conformite_csv,
+    load_company_daily_balances,
 )
 
 
@@ -32,6 +33,30 @@ def importer_base_agences(repo: DuckDBRepo, path_base: str, path_banques: str,
     n = repo.upsert_agences(agences)
     nb_co = _rebuild_companies(repo) if rebuild_companies else 0
     return {"lignes_importees": n, "companies_rebuilt": nb_co}
+
+
+def importer_company_daily_balances(repo: DuckDBRepo, path_xlsx: str,
+                                    rebuild_companies: bool = True) -> dict:
+    """Import des soldes Company/jour (export Odoo). Réécrit toute la table."""
+    df = load_company_daily_balances(path_xlsx)
+    con = repo.con()
+    con.execute("DELETE FROM company_daily_balances")
+    con.register("cdb", df)
+    con.execute("""
+      INSERT INTO company_daily_balances (societe, diary_date, final_balance, initial_balance)
+      SELECT societe, diary_date, final_balance, initial_balance
+      FROM cdb
+      ON CONFLICT DO NOTHING
+    """)
+    con.unregister("cdb")
+    nb_co = _rebuild_companies(repo) if rebuild_companies else 0
+    return {
+        "lignes_importees": len(df),
+        "societes_uniques": int(df["societe"].nunique()),
+        "dates_uniques": int(df["diary_date"].nunique()),
+        "periode": f"{df['diary_date'].min()} → {df['diary_date'].max()}",
+        "companies_rebuilt": nb_co,
+    }
 
 
 def importer_conformite(repo: DuckDBRepo, path_csv: str,

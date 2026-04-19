@@ -13,7 +13,9 @@ import streamlit as st
 import pandas as pd
 
 from adapters.duckdb_repo import DuckDBRepo
-from services.import_service import importer_rapport_solde
+from services.import_service import (
+    importer_rapport_solde, importer_company_daily_balances,
+)
 from services.company_service import build_companies_table, kpis_companies
 
 DB_PATH = str(ROOT / "data" / "cashplus.db")
@@ -31,9 +33,9 @@ con = repo.con()
 
 st.title("📥 Import / Exports")
 
-tab_imp, tab_hist, tab_co, tab_exp = st.tabs([
-    "Importer rapport solde", "Historique",
-    "🏢 Companies", "Exports consolidés",
+tab_imp, tab_bal, tab_hist, tab_co, tab_exp = st.tabs([
+    "Importer rapport solde", "💼 Balances Company/jour",
+    "Historique", "🏢 Companies", "Exports consolidés",
 ])
 
 with tab_imp:
@@ -58,6 +60,51 @@ with tab_imp:
             st.cache_data.clear()
         except Exception as e:
             st.error(f"Erreur : {e}")
+
+with tab_bal:
+    st.markdown("""
+    Dépose l'export **solde net Company / jour** (Odoo — colonnes
+    `dDiaryDate, agence, nFinalBalance, nInitialBalance`). Ce fichier est
+    la **source réelle de compensation** et écrase l'estimation basée sur
+    les soldes YTD/107 pour le champ `besoin_cash_jour` de chaque Company.
+    """)
+    f_bal = st.file_uploader("Fichier balances Company", type=["xlsx"],
+                             key="bal_upload")
+    if f_bal and st.button("🚀 Importer balances", type="primary"):
+        import tempfile as _tf
+        with _tf.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
+            tmp.write(f_bal.read())
+            tmp_path = tmp.name
+        try:
+            r = importer_company_daily_balances(repo, tmp_path)
+            st.success(
+                f"✅ {r['lignes_importees']:,} lignes | "
+                f"{r['societes_uniques']} sociétés | "
+                f"{r['dates_uniques']} jours ({r['periode']})<br>"
+                f"🏢 {r['companies_rebuilt']} companies recalculées "
+                f"avec les vrais besoins"
+            )
+            st.cache_data.clear()
+        except Exception as e:
+            st.error(f"Erreur : {e}")
+
+    # Aperçu données existantes
+    nb = con.execute("SELECT COUNT(*) FROM company_daily_balances").fetchone()[0]
+    if nb:
+        st.caption(f"{nb:,} lignes en base")
+        stats = con.execute("""
+          SELECT MIN(diary_date) d_min, MAX(diary_date) d_max,
+                 COUNT(DISTINCT societe) nb_societes,
+                 AVG(CASE WHEN final_balance<0 THEN -final_balance ELSE 0 END)
+                   besoin_moyen_tous
+          FROM company_daily_balances
+        """).fetchone()
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Période", f"{stats[0]} → {stats[1]}")
+        m2.metric("Sociétés", stats[2])
+        m3.metric("Besoin moyen / société", f"{stats[3]/1e3:.0f} k MAD")
+        m4.metric("Besoin réseau /jour",
+                  f"{(stats[3]*stats[2])/1e6:.1f} M MAD")
 
 with tab_hist:
     hist = con.execute("""

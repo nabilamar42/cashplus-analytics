@@ -57,6 +57,15 @@ class DuckDBRepo:
           nom VARCHAR PRIMARY KEY, cree_le TIMESTAMP,
           payload JSON, notes VARCHAR
         )""")
+        # Phase 3.8 — Solde net Company par jour (source réelle compensation)
+        self._con.execute("""
+        CREATE TABLE IF NOT EXISTS company_daily_balances (
+          societe VARCHAR,
+          diary_date DATE,
+          final_balance DOUBLE,
+          initial_balance DOUBLE,
+          PRIMARY KEY (societe, diary_date)
+        )""")
 
     def close(self):
         self._con.close()

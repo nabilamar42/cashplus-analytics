@@ -50,9 +50,32 @@ GROUP BY s.societe
 
 
 def build_companies_table(repo: DuckDBRepo) -> int:
-    """Reconstruit la table companies depuis agences/volumes/conformite."""
+    """Reconstruit la table companies depuis agences/volumes/conformite.
+
+    Si `company_daily_balances` est peuplée, remplace le `besoin_cash_jour`
+    issu des shops (|solde<0|) par la **moyenne journalière du final_balance
+    négatif de la Company** — source réelle utilisée pour la compensation.
+    """
     con = repo.con()
     df = con.execute(SQL_AGG).df()
+
+    # Override besoin_cash_jour depuis les données réelles si dispo
+    has_real = con.execute(
+        "SELECT COUNT(*) FROM company_daily_balances"
+    ).fetchone()[0] > 0
+    if has_real:
+        real = con.execute("""
+          SELECT UPPER(TRIM(societe)) AS societe_k,
+                 AVG(CASE WHEN final_balance < 0 THEN -final_balance ELSE 0 END)
+                   AS besoin_reel
+          FROM company_daily_balances
+          GROUP BY UPPER(TRIM(societe))
+        """).df()
+        df["societe_k"] = df["societe"].astype(str).str.upper().str.strip()
+        df = df.merge(real, on="societe_k", how="left")
+        df["besoin_cash_jour"] = df["besoin_reel"].fillna(df["besoin_cash_jour"])
+        df = df.drop(columns=["societe_k", "besoin_reel"])
+
     df["score_acquisition"] = df.apply(
         lambda r: score_acquisition(
             int(r["nb_shops"]), int(r["nb_shops_nc"]),
@@ -61,7 +84,11 @@ def build_companies_table(repo: DuckDBRepo) -> int:
     )
     con.execute("DELETE FROM companies")
     con.register("cdf", df)
-    con.execute("INSERT INTO companies SELECT * FROM cdf")
+    con.execute("""INSERT INTO companies
+      SELECT societe, banque, nb_shops, nb_shops_conformes, nb_shops_nc,
+             nb_villes, dr_principal, flux_total_jour, solde_total_jour,
+             besoin_cash_jour, score_acquisition
+      FROM cdf""")
     con.unregister("cdf")
     return len(df)
 

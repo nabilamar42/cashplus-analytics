@@ -84,3 +84,19 @@ def load_conformite_csv(
             conforme=bool(r["conforme"]),
         ))
     return out
+
+
+def load_company_daily_balances(path_xlsx: str) -> pd.DataFrame:
+    """Charge solde net Company/jour (export Odoo 'dDiaryDate, agence,
+    nFinalBalance, nInitialBalance'). Filtre les lignes de notes en pied.
+    """
+    df = pd.read_excel(path_xlsx)
+    # Purger les lignes footer (texte dans dDiaryDate)
+    df = df[df["dDiaryDate"].apply(
+        lambda x: not isinstance(x, str) or str(x).startswith("20"))]
+    df = df.dropna(subset=["dDiaryDate", "agence", "nFinalBalance"])
+    df["dDiaryDate"] = pd.to_datetime(df["dDiaryDate"]).dt.date
+    return df.rename(columns={
+        "dDiaryDate": "diary_date", "agence": "societe",
+        "nFinalBalance": "final_balance", "nInitialBalance": "initial_balance",
+    })[["societe", "diary_date", "final_balance", "initial_balance"]]
