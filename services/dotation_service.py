@@ -5,6 +5,26 @@ from adapters.duckdb_repo import DuckDBRepo
 from core.dotation import dotation_cible, BESOIN_OPERATIONS_PROPRE_DEFAUT
 
 
+def _besoin_ops_par_propre(repo: DuckDBRepo) -> dict[str, float]:
+    """Retourne {propre_code: besoin_ops_observé_MAD} depuis propre_daily_balances.
+
+    `besoin = AVG(|nFinalBalance|)` sur la période. Vide si la table est vide.
+    """
+    con = repo.con()
+    n = con.execute("SELECT COUNT(*) FROM propre_daily_balances").fetchone()[0]
+    if not n:
+        return {}
+    df = con.execute("""
+      SELECT a.code,
+             AVG(ABS(p.final_balance)) AS besoin_ops_obs
+      FROM propre_daily_balances p
+      JOIN agences a ON UPPER(TRIM(a.nom)) = UPPER(TRIM(p.agence_nom))
+      WHERE a.type = 'Propre'
+      GROUP BY a.code
+    """).df()
+    return dict(zip(df["code"], df["besoin_ops_obs"]))
+
+
 def dotations_toutes_propres(
     repo: DuckDBRepo,
     jours_couverture: int = 2,
@@ -32,7 +52,12 @@ def dotations_toutes_propres(
       WHERE p.type = 'Propre'
       GROUP BY p.code, p.nom, p.ville, p.dr, p.societe
     """).df()
-    df["besoin_ops_jour"] = float(besoin_ops_propre)
+    # Besoin ops : per-propre observé si dispo, sinon flat paramètre
+    obs = _besoin_ops_par_propre(repo)
+    if obs:
+        df["besoin_ops_jour"] = df["code"].map(obs).fillna(float(besoin_ops_propre))
+    else:
+        df["besoin_ops_jour"] = float(besoin_ops_propre)
     df["besoin_jour"] = df["besoin_ops_jour"] + df["besoin_compensation_jour"]
     df["dotation_cible"] = df["besoin_jour"].apply(
         lambda b: dotation_cible(b, jours_couverture, buffer_pct, saisonnalite_pct)
@@ -117,13 +142,19 @@ def dotations_propre_x_company(
     """).df()
 
     # Injection de la ligne "Opérations propre" pour chaque propre active
-    if besoin_ops_propre > 0 and not df.empty:
+    obs = _besoin_ops_par_propre(repo)
+    if (besoin_ops_propre > 0 or obs) and not df.empty:
         propres_head = df[["propre_code", "propre_nom", "propre_ville",
                            "propre_dr"]].drop_duplicates()
         ops = propres_head.copy()
         ops["societe"] = "(Opérations propre)"
         ops["nb_shops"] = 0
-        ops["besoin_jour"] = float(besoin_ops_propre)
+        if obs:
+            ops["besoin_jour"] = ops["propre_code"].map(obs).fillna(
+                float(besoin_ops_propre))
+        else:
+            ops["besoin_jour"] = float(besoin_ops_propre)
+        ops = ops[ops["besoin_jour"] > 0]
         df = pd.concat([ops, df], ignore_index=True)
 
     df["dotation_cible"] = df["besoin_jour"].apply(

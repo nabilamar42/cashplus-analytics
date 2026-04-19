@@ -15,6 +15,7 @@ import pandas as pd
 from adapters.duckdb_repo import DuckDBRepo
 from services.import_service import (
     importer_rapport_solde, importer_company_daily_balances,
+    importer_propre_daily_balances,
 )
 from services.company_service import build_companies_table, kpis_companies
 
@@ -33,9 +34,10 @@ con = repo.con()
 
 st.title("📥 Import / Exports")
 
-tab_imp, tab_bal, tab_hist, tab_co, tab_exp = st.tabs([
+tab_imp, tab_bal, tab_bal_p, tab_hist, tab_co, tab_exp = st.tabs([
     "Importer rapport solde", "💼 Balances Company/jour",
-    "Historique", "🏢 Companies", "Exports consolidés",
+    "🏦 Balances Propre/jour", "Historique",
+    "🏢 Companies", "Exports consolidés",
 ])
 
 with tab_imp:
@@ -105,6 +107,48 @@ with tab_bal:
         m3.metric("Besoin moyen / société", f"{stats[3]/1e3:.0f} k MAD")
         m4.metric("Besoin réseau /jour",
                   f"{(stats[3]*stats[2])/1e6:.1f} M MAD")
+
+with tab_bal_p:
+    st.markdown("""
+    Dépose le **solde net agence propre / jour** (Odoo). Ce fichier
+    remplace l'estimation flat `besoin_ops_propre` (250k/j) par le besoin
+    réellement observé pour chaque agence propre (`AVG(|nFinalBalance|)`
+    sur la période).
+    """)
+    f_bp = st.file_uploader("Fichier balances Propres", type=["xlsx"],
+                            key="bal_p_upload")
+    if f_bp and st.button("🚀 Importer balances propres", type="primary"):
+        import tempfile as _tf
+        with _tf.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
+            tmp.write(f_bp.read())
+            tmp_path = tmp.name
+        try:
+            r = importer_propre_daily_balances(repo, tmp_path)
+            st.success(
+                f"✅ {r['lignes_importees']:,} lignes | "
+                f"{r['agences_uniques']} agences dont "
+                f"**{r['agences_matchees']} matchées** avec la base | "
+                f"{r['dates_uniques']} jours ({r['periode']})"
+            )
+            st.cache_data.clear()
+        except Exception as e:
+            st.error(f"Erreur : {e}")
+
+    nbp = con.execute("SELECT COUNT(*) FROM propre_daily_balances").fetchone()[0]
+    if nbp:
+        st.caption(f"{nbp:,} lignes en base")
+        s = con.execute("""
+          SELECT MIN(diary_date), MAX(diary_date),
+                 COUNT(DISTINCT agence_nom),
+                 AVG(ABS(final_balance))
+          FROM propre_daily_balances
+        """).fetchone()
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Période", f"{s[0]} → {s[1]}")
+        m2.metric("Agences", s[2])
+        m3.metric("Besoin ops moy / propre", f"{s[3]/1e3:.0f} k MAD")
+        m4.metric("Total propres /j",
+                  f"{(s[3]*s[2])/1e6:.0f} M MAD")
 
 with tab_hist:
     hist = con.execute("""

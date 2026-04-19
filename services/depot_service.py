@@ -191,9 +191,15 @@ def network_depots(
     """
     depots = list_depots(repo)
     propres = _load_propres_full(repo)
-    # Ajoute le besoin opérationnel de la propre (cash-in/out guichet)
+    # Ajoute le besoin opérationnel de la propre (per-propre observé si dispo)
+    from services.dotation_service import _besoin_ops_par_propre
+    obs = _besoin_ops_par_propre(repo)
     propres["besoin_compensation_jour"] = propres["besoin_jour"]
-    propres["besoin_ops_jour"] = float(besoin_ops_propre)
+    if obs:
+        propres["besoin_ops_jour"] = propres["code"].map(obs).fillna(
+            float(besoin_ops_propre))
+    else:
+        propres["besoin_ops_jour"] = float(besoin_ops_propre)
     propres["besoin_jour"] = (propres["besoin_ops_jour"]
                               + propres["besoin_compensation_jour"])
 

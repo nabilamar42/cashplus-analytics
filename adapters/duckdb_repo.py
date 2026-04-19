@@ -66,6 +66,15 @@ class DuckDBRepo:
           initial_balance DOUBLE,
           PRIMARY KEY (societe, diary_date)
         )""")
+        # Phase 3.9 — Solde net agence propre par jour (dotation observée)
+        self._con.execute("""
+        CREATE TABLE IF NOT EXISTS propre_daily_balances (
+          agence_nom VARCHAR,
+          diary_date DATE,
+          final_balance DOUBLE,
+          initial_balance DOUBLE,
+          PRIMARY KEY (agence_nom, diary_date)
+        )""")
 
     def close(self):
         self._con.close()

@@ -4,7 +4,7 @@ from datetime import date
 from adapters.duckdb_repo import DuckDBRepo
 from adapters.excel_importer import (
     load_base_agences, load_rapport_solde, load_conformite_csv,
-    load_company_daily_balances,
+    load_company_daily_balances, load_propre_daily_balances,
 )
 
 
@@ -56,6 +56,34 @@ def importer_company_daily_balances(repo: DuckDBRepo, path_xlsx: str,
         "dates_uniques": int(df["diary_date"].nunique()),
         "periode": f"{df['diary_date'].min()} → {df['diary_date'].max()}",
         "companies_rebuilt": nb_co,
+    }
+
+
+def importer_propre_daily_balances(repo: DuckDBRepo, path_xlsx: str) -> dict:
+    """Import soldes propre/jour. Source réelle pour le besoin ops guichet."""
+    df = load_propre_daily_balances(path_xlsx)
+    con = repo.con()
+    con.execute("DELETE FROM propre_daily_balances")
+    con.register("pdb", df)
+    con.execute("""
+      INSERT INTO propre_daily_balances (agence_nom, diary_date, final_balance, initial_balance)
+      SELECT agence_nom, diary_date, final_balance, initial_balance FROM pdb
+      ON CONFLICT DO NOTHING
+    """)
+    con.unregister("pdb")
+    # Match propres avec agences.nom
+    matched = con.execute("""
+      SELECT COUNT(DISTINCT p.agence_nom)
+      FROM propre_daily_balances p
+      JOIN agences a ON UPPER(TRIM(a.nom)) = UPPER(TRIM(p.agence_nom))
+      WHERE a.type = 'Propre'
+    """).fetchone()[0]
+    return {
+        "lignes_importees": len(df),
+        "agences_uniques": int(df["agence_nom"].nunique()),
+        "agences_matchees": int(matched),
+        "dates_uniques": int(df["diary_date"].nunique()),
+        "periode": f"{df['diary_date'].min()} → {df['diary_date'].max()}",
     }
 
 

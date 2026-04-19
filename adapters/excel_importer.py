@@ -86,6 +86,21 @@ def load_conformite_csv(
     return out
 
 
+def load_propre_daily_balances(path_xlsx: str) -> pd.DataFrame:
+    """Charge solde net agence propre/jour (même format que Company balances).
+    Colonnes attendues : dDiaryDate, agence, nFinalBalance, nInitialBalance.
+    """
+    df = pd.read_excel(path_xlsx)
+    df = df[df["dDiaryDate"].apply(
+        lambda x: not isinstance(x, str) or str(x).startswith("20"))]
+    df = df.dropna(subset=["dDiaryDate", "agence", "nFinalBalance"])
+    df["dDiaryDate"] = pd.to_datetime(df["dDiaryDate"]).dt.date
+    return df.rename(columns={
+        "dDiaryDate": "diary_date", "agence": "agence_nom",
+        "nFinalBalance": "final_balance", "nInitialBalance": "initial_balance",
+    })[["agence_nom", "diary_date", "final_balance", "initial_balance"]]
+
+
 def load_company_daily_balances(path_xlsx: str) -> pd.DataFrame:
     """Charge solde net Company/jour (export Odoo 'dDiaryDate, agence,
     nFinalBalance, nInitialBalance'). Filtre les lignes de notes en pied.
