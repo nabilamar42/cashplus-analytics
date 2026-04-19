@@ -62,14 +62,23 @@ def load_rapport_solde(path: str, snapshot: str | None = None) -> list[Volume]:
     return out
 
 
-def load_conformite_csv(path_csv: str) -> list[Rattachement]:
-    """resultats_conformite.csv (OSRM matrice complète)."""
+def load_conformite_csv(
+    path_csv: str,
+    name_to_code: dict[str, str] | None = None,
+) -> list[Rattachement]:
+    """resultats_conformite.csv (OSRM matrice complète).
+
+    Le CSV contient `propre_le_plus_proche` (nom). Si `name_to_code` est fourni,
+    on résout le `code_propre` via ce mapping (nom agence propre → code).
+    """
     df = pd.read_csv(path_csv)
+    m = name_to_code or {}
     out = []
     for _, r in df.iterrows():
+        name = str(r.get("propre_le_plus_proche", "")).strip()
         out.append(Rattachement(
             code_franchise=str(r["code_franchisé"]).strip(),
-            code_propre=None,  # pas dans le CSV actuel — à enrichir
+            code_propre=m.get(name),
             distance_km=float(r["distance_km"]) if pd.notna(r["distance_km"]) else None,
             duree_min=float(r["duree_min"]) if pd.notna(r["duree_min"]) else None,
             conforme=bool(r["conforme"]),

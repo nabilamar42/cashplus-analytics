@@ -36,7 +36,18 @@ def importer_base_agences(repo: DuckDBRepo, path_base: str, path_banques: str,
 
 def importer_conformite(repo: DuckDBRepo, path_csv: str,
                         rebuild_companies: bool = True) -> dict:
-    rattachements = load_conformite_csv(path_csv)
+    # Construit le mapping nom→code des agences propres pour résoudre
+    # `propre_le_plus_proche` dans le CSV.
+    rows = repo.con().execute(
+        "SELECT nom, code FROM agences WHERE type='Propre'"
+    ).fetchall()
+    name_to_code = {str(n).strip(): str(c) for n, c in rows}
+    rattachements = load_conformite_csv(path_csv, name_to_code=name_to_code)
     repo.replace_all(rattachements)
+    resolved = sum(1 for r in rattachements if r.code_propre)
     nb_co = _rebuild_companies(repo) if rebuild_companies else 0
-    return {"lignes_importees": len(rattachements), "companies_rebuilt": nb_co}
+    return {
+        "lignes_importees": len(rattachements),
+        "code_propre_resolved": resolved,
+        "companies_rebuilt": nb_co,
+    }
