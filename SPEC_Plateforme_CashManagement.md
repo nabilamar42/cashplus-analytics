@@ -371,7 +371,124 @@ companies ré-agrégées est renvoyé dans le dict résultat et affiché dans l'
 ### Tests
 - `tests/test_company.py` (5 tests) — couverture `score_acquisition` : zéros,
   boost multi-shop, pénalité BMCE, boost NC, cible stratégique complète.
-- Total : **21 tests verts** (8 scoring + 7 rattachement + 4 dotation + 5 company).
+
+---
+
+## Amendement v1.2 (2026-04-19) — Pivot Propre × Company + Ouvertures propres
+
+### Vue Dotations refondée en pivot opérationnel
+Question métier : « quand un CIT arrive à une agence propre, combien livre-t-il
+et pour le compte de quelles Companies ? »
+
+- Nouvelle fonction `services/dotation_service.py::dotations_propre_x_company`
+  — SQL jointure `agences + conformite + volumes` + une ligne synthétique
+  `societe = "(Opérations propre)"` par propre active pour refléter le besoin
+  cash guichet (cash-in/out hors compensation).
+- Page **💰 Dotations** refondue en **Company-first** :
+  1. Vue primaire = pivot Propre × Company (résumé par propre + drill-down).
+  2. Expanders secondaires = Companies seules (négociation bancaire) + Propres
+     flat (reporting macro).
+
+### Scoring → 📊 Ouvertures Propres
+Renommage page 3. Focus exclusif sur les villes prioritaires pour ouvrir de
+nouvelles agences propres. L'ancien onglet « Top franchisés » (shop-level)
+est supprimé au profit de la stratégie Company sur la page 🏢 Companies.
+
+### Besoin opérationnel propre (Phase 3 pré-requis)
+Ajout `core/dotation.py::BESOIN_OPERATIONS_PROPRE_DEFAUT = 250_000` MAD/jour.
+Chaque agence propre a un besoin plancher pour son activité guichet, en plus
+de la compensation franchisés. Paramétrable dans l'UI.
+
+Impact chiffré (607 propres actives, 250k/j) :
+- Ops guichet : 151,8 M/j
+- Compensation franchisés : 38,4 M/j
+- Besoin total réseau : 190,1 M/j → **Dotation cible 456 M MAD**
+
+---
+
+## Amendement v1.3 (2026-04-19) — Phase 3 Dépôts hub-and-spoke
+
+### Modèle opérationnel
+```
+Banque → CIT externe (Brinks/G4S, 150 MAD/passage paramétrable)
+       → Dépôt CashPlus (1..N par ville, 8 villes cibles)
+       → Convoyeur interne CashPlus (rayon ≤40 km, OPEX km + fixe)
+       → Agences propres
+       → Shops franchisés
+```
+
+### Villes cibles (défaut, paramétrable)
+Casablanca, Tanger, Rabat, Salé, Fès, Oujda, Agadir, Marrakech —
+8 villes disposant d'un service interne de convoyage CashPlus.
+
+### Modèle de données
+- Colonne `is_depot BOOLEAN DEFAULT false` ajoutée sur la table `agences`
+  (migration automatique via `ALTER TABLE` dans `_ensure_schema`).
+- Les dépôts sont des agences propres existantes promues (pas de nouvelle entité).
+
+### Nouveau module `core/depot.py`
+- `haversine_km(lat1, lon1, lat2, lon2)` — distance grand cercle.
+- `passages_par_mois(jours_couverture)` = 30 / jours.
+- `cout_cit_externe(n, jours, cout)` — baseline sans dépôts.
+- `cout_cit_avec_depot(nb_depots, jours, cout)` — 1 passage externe par dépôt.
+- `cout_tournee_interne(distance_km, cout_km, cout_fixe)` — OPEX convoyeur.
+- `cout_convoyeur_interne_mois(distance_tournee, jours, cout_km, cout_fixe)`.
+- `tsp_nearest_neighbor(depot_idx, dist_matrix)` — ordonne la tournée.
+
+### Constantes par défaut (toutes paramétrables UI)
+```python
+RAYON_DEPOT_KM_DEFAUT       = 40.0    # convoyeur interne
+COUT_CIT_PAR_PASSAGE_DEFAUT = 150.0   # MAD — Brinks/G4S
+COUT_CONVOYEUR_KM_DEFAUT    = 4.0     # MAD/km — véhicule+carburant
+COUT_CONVOYEUR_FIXE_DEFAUT  = 500.0   # MAD/tournée — salaires convoyeur+garde
+```
+
+### Service `services/depot_service.py`
+- `auto_select_depots(repo, villes, n_par_ville)` — pour chaque ville, pick
+  1ᵉʳ dépôt par centralité (min somme distances), dépôts suivants par
+  **MaxMin / farthest-point** (répartition géographique). `n_par_ville` accepte
+  un int global ou un dict `{ville: n}`.
+- `set_depots_ville(repo, ville, codes[])` — remplace la liste des dépôts
+  d'une ville par l'ensemble fourni (multi-select UI).
+- `list_depots(repo)` — DataFrame des dépôts actifs.
+- `propres_de_ville(repo, ville)` — candidats override.
+- `network_depots(repo, rayon_km, cout_par_passage, jours, cout_conv_km,
+  cout_conv_fixe, use_osrm, besoin_ops_propre)` — calcule l'assignation
+  propre → dépôt le + proche (haversine ou OSRM), la tournée TSP par dépôt,
+  et les KPIs TCO (CIT externe + convoyeur interne séparés).
+
+### Page UI `7_🏦_Depots`
+- Sidebar : rayon, jours, coût CIT, coût convoyeur (km + fixe), besoin ops
+  propre, toggle OSRM.
+- Configuration : auto-sélection N/ville + override manuel multi-sélection.
+- KPIs TCO : sans dépôts vs avec dépôts (CIT ext + conv int), économie an.
+- Table synthèse par dépôt.
+- Drill-down tournée : ordre des arrêts + distance totale.
+- Carte folium : cercles rayon, propres colorées par dépôt d'affectation,
+  propres hors rayon en gris, tracé tournée sélectionnée en rouge.
+- Export Excel 6 onglets (dépôts, synthèse, tournées, couvertes, non-couvertes,
+  paramètres).
+
+### Résultats avec paramètres défauts (1 dépôt/ville, rayon 40, 150 MAD/passage)
+| KPI | Valeur |
+|---|---|
+| Dépôts actifs | 8 |
+| Propres couvertes | 410 / 701 (58,5 %) |
+| CIT externe sans dépôts | 1,58 M MAD/mois |
+| CIT externe avec dépôts | 673 k MAD/mois |
+| Convoyeur interne | 135 k MAD/mois |
+| Économie mensuelle | 771 k MAD |
+| **Économie annuelle** | **9,23 M MAD** |
+
+### Tests
+- `tests/test_depot.py` (10 tests) : haversine, passages, coûts externe/interne,
+  TSP trivial + single-point.
+- **Total plateforme : 31 tests verts** (8 + 7 + 4 + 5 + 6 core depot + 4 TSP/coûts).
+
+### Dépendances Phase 3 → Phase 4
+- Scénarios nommés (table `scenarios`) pour sauvegarder une config dépôts.
+- Planning CIT J+7 par dépôt (export opérateur Brinks/G4S).
+- Intégration GPS convoyeurs internes (tracking live).
 
 ---
 
