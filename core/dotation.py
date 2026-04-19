@@ -3,7 +3,7 @@ from __future__ import annotations
 
 # Besoin plancher d'une agence propre pour ses propres opérations cash-in /
 # cash-out au guichet (hors compensation franchisés). Paramétrable dans l'UI.
-BESOIN_OPERATIONS_PROPRE_DEFAUT = 250_000.0  # MAD/jour
+BESOIN_OPERATIONS_PROPRE_DEFAUT = 200_000.0  # MAD/jour
 
 
 def dotation_cible(

@@ -6,23 +6,15 @@ from core.dotation import dotation_cible, BESOIN_OPERATIONS_PROPRE_DEFAUT
 
 
 def _besoin_ops_par_propre(repo: DuckDBRepo) -> dict[str, float]:
-    """Retourne {propre_code: besoin_ops_observé_MAD} depuis propre_daily_balances.
-
-    `besoin = AVG(|nFinalBalance|)` sur la période. Vide si la table est vide.
+    """Désactivé — on utilise désormais un besoin flat paramétrable (200k/j par
+    défaut) pour toutes les propres. Les soldes quotidiens (nFinalBalance) de
+    `propre_daily_balances` représentent un stock ou des rééquilibrages CIT
+    non représentatifs du besoin opérationnel journalier (cash-in/out guichet).
+    Conservé vide pour compatibilité — retourner une estimation per-propre
+    depuis la data observée reste possible ultérieurement si on isole le flux
+    guichet (hors mouvements CIT).
     """
-    con = repo.con()
-    n = con.execute("SELECT COUNT(*) FROM propre_daily_balances").fetchone()[0]
-    if not n:
-        return {}
-    df = con.execute("""
-      SELECT a.code,
-             AVG(ABS(p.final_balance)) AS besoin_ops_obs
-      FROM propre_daily_balances p
-      JOIN agences a ON UPPER(TRIM(a.nom)) = UPPER(TRIM(p.agence_nom))
-      WHERE a.type = 'Propre'
-      GROUP BY a.code
-    """).df()
-    return dict(zip(df["code"], df["besoin_ops_obs"]))
+    return {}
 
 
 def dotations_toutes_propres(

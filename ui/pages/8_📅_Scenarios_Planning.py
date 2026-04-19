@@ -60,7 +60,7 @@ with tab_scen:
             cout_km = st.number_input("Convoyeur MAD/km", 0.0, 50.0, 4.0)
             cout_fx = st.number_input("Convoyeur fixe MAD", 0, 5000, 500)
             ops = st.number_input("Besoin ops /j (MAD)", 0, 2_000_000,
-                                  250_000, 10_000)
+                                  200_000, 10_000)
             com = st.number_input("Commission bancaire MAD/M", 0, 5000, 500, 50)
             submit = st.form_submit_button("💾 Sauvegarder",
                                            use_container_width=True,
@@ -222,7 +222,7 @@ with tab_plan:
             repo, pick,
             rayon_km=rayon_p, jours_couverture=jours_p,
             cout_par_passage=150, cout_conv_km=4, cout_conv_fixe=500,
-            besoin_ops_propre=250_000,
+            besoin_ops_propre=200_000,
         )
         if not tour.empty:
             tour["besoin_cash_jour"] = tour["besoin_cash_jour"].apply(
@@ -249,7 +249,7 @@ with tab_plan:
                         repo, code, rayon_km=rayon_p,
                         jours_couverture=jours_p, cout_par_passage=150,
                         cout_conv_km=4, cout_conv_fixe=500,
-                        besoin_ops_propre=250_000,
+                        besoin_ops_propre=200_000,
                     )
                     if not t.empty:
                         sheet = f"Tournée {code}"[:30]

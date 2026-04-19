@@ -23,7 +23,7 @@ def planning_cit(repo: DuckDBRepo,
                  jours_couverture: int = 2,
                  cout_conv_km: float = 4.0,
                  cout_conv_fixe: float = 500.0,
-                 besoin_ops_propre: float = 250_000.0) -> pd.DataFrame:
+                 besoin_ops_propre: float = 200_000.0) -> pd.DataFrame:
     """Planning CIT glissant par dépôt.
 
     Un dépôt a 1 passage tous les `jours_couverture` jours. Les dépôts sont
