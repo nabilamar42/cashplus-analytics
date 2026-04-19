@@ -65,6 +65,46 @@ def dotations_par_company(
     return df.sort_values("dotation_cible", ascending=False)
 
 
+def dotations_propre_x_company(
+    repo: DuckDBRepo,
+    jours_couverture: int = 2,
+    buffer_pct: float = 20.0,
+    saisonnalite_pct: float = 0.0,
+) -> pd.DataFrame:
+    """Pivot opérationnel : pour chaque agence propre, liste des Companies
+    servies + montant cash quotidien + dotation CIT.
+
+    Rattachement via conformite.code_propre (shops conformes uniquement).
+    """
+    con = repo.con()
+    df = con.execute("""
+      WITH v_latest AS (
+        SELECT v.* FROM volumes v
+        JOIN (SELECT shop_id, MAX(snapshot_date) md FROM volumes GROUP BY 1) m
+          ON m.shop_id=v.shop_id AND m.md=v.snapshot_date
+      )
+      SELECT
+        p.code  AS propre_code,
+        p.nom   AS propre_nom,
+        p.ville AS propre_ville,
+        p.dr    AS propre_dr,
+        a.societe,
+        COUNT(a.code) AS nb_shops,
+        SUM(CASE WHEN v.solde_jour < 0 THEN -v.solde_jour ELSE 0 END) AS besoin_jour
+      FROM agences p
+      JOIN conformite c ON c.code_propre = p.code AND c.conforme = true
+      JOIN agences a ON a.code = c.code_franchise
+      LEFT JOIN v_latest v ON v.shop_id = a.code
+      WHERE p.type = 'Propre' AND a.societe IS NOT NULL
+      GROUP BY p.code, p.nom, p.ville, p.dr, a.societe
+      HAVING SUM(CASE WHEN v.solde_jour < 0 THEN -v.solde_jour ELSE 0 END) > 0
+    """).df()
+    df["dotation_cible"] = df["besoin_jour"].apply(
+        lambda b: dotation_cible(b, jours_couverture, buffer_pct, saisonnalite_pct)
+    )
+    return df.sort_values(["propre_code", "besoin_jour"], ascending=[True, False])
+
+
 def total_reseau(df_dotations: pd.DataFrame) -> dict:
     return {
         "total_besoin_jour": float(df_dotations["besoin_jour"].sum()),

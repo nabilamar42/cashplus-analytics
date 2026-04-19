@@ -1,9 +1,7 @@
-"""Dotations cash — raisonnement **par Company** (société franchisée).
+"""Dotations cash — pivot opérationnel Propre × Company.
 
-Un franchisé = une Company qui possède 1..N Shops. La dotation cash se pilote
-au niveau Company (engagement bancaire, négociation, reporting Comex).
-La vue Propres (plan CIT) est secondaire et sert à dimensionner l'alimentation
-physique en cash des agences propres qui servent les shops.
+Question opérationnelle : quand un CIT arrive à une agence propre, combien de
+cash livre-t-il et pour le compte de quelles Companies ?
 """
 from __future__ import annotations
 import sys
@@ -18,11 +16,11 @@ import pandas as pd
 
 from adapters.duckdb_repo import DuckDBRepo
 from services.dotation_service import (
-    dotations_par_company, dotations_toutes_propres, total_reseau,
+    dotations_propre_x_company, dotations_par_company,
+    dotations_toutes_propres, total_reseau,
 )
 
 DB_PATH = str(ROOT / "data" / "cashplus.db")
-
 st.set_page_config(page_title="Dotations — CashPlus", layout="wide")
 
 
@@ -33,15 +31,14 @@ def get_repo():
 
 repo = get_repo()
 
-st.title("💰 Dotations cash — par Company")
-st.caption("Besoin cash journalier agrégé au niveau Société juridique franchisée. "
-           "C'est la base de négociation bancaire et de reporting Comex.")
+st.title("💰 Dotations cash")
+st.caption("Vue pivot Propre × Company — plan CIT opérationnel. "
+           "Chaque agence propre livre pour le compte de N Companies.")
 
 # --- Sidebar ---
 with st.sidebar:
     st.header("Paramètres")
-    jours = st.slider("Jours de couverture (entre 2 passages CIT)",
-                      min_value=1, max_value=7, value=2)
+    jours = st.slider("Jours de couverture (entre 2 passages CIT)", 1, 7, 2)
     buffer_pct = st.slider("Buffer sécurité (%)", 0, 100, 20,
                            help="Marge pour volatilité intra-jour")
     saison_pct = st.slider("Saisonnalité (%)", 0, 100, 0,
@@ -52,202 +49,193 @@ with st.sidebar:
             f"          × (1 + {buffer_pct}/100)\n"
             f"          × (1 + {saison_pct}/100)")
     st.divider()
-    if st.button("🔄 Vider le cache (forcer recalcul)"):
+    if st.button("🔄 Vider le cache"):
         st.cache_data.clear()
         st.rerun()
 
 
 @st.cache_data(ttl=60)
-def load_co(j, b, s, only_multi):
-    return dotations_par_company(repo, j, b, s, only_multishop=only_multi)
+def load_pivot(j, b, s):
+    return dotations_propre_x_company(repo, j, b, s)
 
 
 @st.cache_data(ttl=60)
-def load_propres(j, b, s):
+def load_co(j, b, s):
+    return dotations_par_company(repo, j, b, s)
+
+
+@st.cache_data(ttl=60)
+def load_propres_flat(j, b, s):
     return dotations_toutes_propres(repo, j, b, s)
 
 
 # ============================================================
-# VUE PRIMAIRE : Companies
+# VUE PRIMAIRE : pivot Propre × Company
 # ============================================================
-st.subheader("🏢 Vue Companies (primaire)")
+piv = load_pivot(jours, buffer_pct, saison_pct)
 
-f1, f2, f3 = st.columns([1, 2, 2])
-with f1:
-    only_multi = st.checkbox("Multi-shops uniquement", value=False)
-with f2:
-    banques_co = ["Toutes", "BMCE", "BP", "CIH", "Attijari WafaBank", "CDM"]
-    b_co = st.selectbox("Banque domiciliataire", banques_co, index=0)
-with f3:
-    drs_all = sorted(
-        {d for d in repo.con().execute(
-            "SELECT DISTINCT dr_principal FROM companies").df()["dr_principal"].dropna()}
-    )
-    dr_sel = st.multiselect("DR principal", drs_all, default=[])
-
-dfc = load_co(jours, buffer_pct, saison_pct, only_multi)
-if b_co != "Toutes":
-    dfc = dfc[dfc["banque"] == b_co]
-if dr_sel:
-    dfc = dfc[dfc["dr_principal"].isin(dr_sel)]
-
-# Companies avec besoin > 0 = "actives" côté cash
-actives = dfc[dfc["besoin_jour"] > 0]
-total_dot = float(dfc["dotation_cible"].sum())
-total_besoin = float(dfc["besoin_jour"].sum())
+# Résumé par propre
+per_propre = piv.groupby(
+    ["propre_code", "propre_nom", "propre_ville", "propre_dr"], dropna=False
+).agg(
+    nb_companies=("societe", "nunique"),
+    nb_shops=("nb_shops", "sum"),
+    besoin_jour=("besoin_jour", "sum"),
+    dotation_cible=("dotation_cible", "sum"),
+).reset_index().sort_values("dotation_cible", ascending=False)
 
 k1, k2, k3, k4 = st.columns(4)
-k1.metric("Companies affichées", f"{len(dfc):,}".replace(",", " "),
-          f"{len(actives)} actives (besoin > 0)")
-k2.metric("Shops couverts", int(dfc["nb_shops"].sum()))
-k3.metric("Besoin net / jour",
-          f"{total_besoin/1e6:.1f} M MAD")
+k1.metric("Agences propres actives", len(per_propre))
+k2.metric("Companies servies", piv["societe"].nunique())
+k3.metric("Besoin net / jour réseau",
+          f"{per_propre['besoin_jour'].sum()/1e6:.1f} M MAD")
 k4.metric("💰 Dotation cible totale",
-          f"{total_dot/1e6:.1f} M MAD",
+          f"{per_propre['dotation_cible'].sum()/1e6:.1f} M MAD",
           f"× {jours} j × +{buffer_pct}%")
 
 st.divider()
 
-# Table filtrable
-col_a, col_b = st.columns([2, 3])
-with col_a:
-    masquer_zero = st.checkbox("Masquer companies sans besoin cash", value=True)
-with col_b:
+# Filtres
+f1, f2, f3 = st.columns([2, 2, 2])
+with f1:
+    drs = sorted(per_propre["propre_dr"].dropna().unique())
+    dr_sel = st.multiselect("DR", drs, default=[])
+with f2:
+    villes = sorted(per_propre["propre_ville"].dropna().unique())
+    ville_sel = st.multiselect("Ville", villes, default=[])
+with f3:
     seuil = st.number_input("Dotation cible minimale (MAD)",
                             min_value=0, value=0, step=100_000)
 
-view = dfc.copy()
-if masquer_zero:
-    view = view[view["besoin_jour"] > 0]
+view = per_propre.copy()
+if dr_sel:
+    view = view[view["propre_dr"].isin(dr_sel)]
+if ville_sel:
+    view = view[view["propre_ville"].isin(ville_sel)]
 if seuil:
     view = view[view["dotation_cible"] >= seuil]
 
-st.caption(f"{len(view)} companies affichées")
+st.caption(f"{len(view)} agences propres — "
+           f"{view['nb_companies'].sum()} liens Company — "
+           f"{view['dotation_cible'].sum()/1e6:.1f} M MAD à livrer")
 
 disp = view.copy()
-disp["flux_jour"] = disp["flux_jour"].apply(
-    lambda x: f"{x:,.0f}".replace(",", " "))
 disp["besoin_jour"] = disp["besoin_jour"].apply(
     lambda x: f"{x:,.0f}".replace(",", " "))
 disp["dotation_cible"] = disp["dotation_cible"].apply(
     lambda x: f"{x:,.0f}".replace(",", " "))
-disp["score_acquisition"] = disp["score_acquisition"].round(2)
 disp = disp.rename(columns={
-    "societe": "Société", "banque": "Banque",
-    "nb_shops": "Shops", "nb_shops_conformes": "Conf.", "nb_shops_nc": "NC",
-    "nb_villes": "Villes", "dr_principal": "DR",
-    "flux_jour": "Flux/j", "besoin_jour": "Besoin/j (MAD)",
-    "dotation_cible": "Dotation cible (MAD)",
-    "score_acquisition": "Score acq.",
+    "propre_code": "Code", "propre_nom": "Agence propre",
+    "propre_ville": "Ville", "propre_dr": "DR",
+    "nb_companies": "Companies", "nb_shops": "Shops",
+    "besoin_jour": "Besoin/j (MAD)", "dotation_cible": "Dotation cible (MAD)",
 })
-st.dataframe(disp, hide_index=True, use_container_width=True, height=500)
+st.dataframe(disp, hide_index=True, use_container_width=True, height=450)
 
-# Export Excel Companies
-buf_co = io.BytesIO()
-with pd.ExcelWriter(buf_co, engine="openpyxl") as w:
-    view.to_excel(w, sheet_name="Dotations Companies", index=False)
+# --- Drill-down sur une propre ---
+st.divider()
+st.subheader("🔍 Drill-down — décomposition d'une agence propre")
+
+propre_options = view.apply(
+    lambda r: f"{r['propre_nom']} ({r['propre_ville']}) — "
+              f"{r['nb_companies']} companies | "
+              f"{r['dotation_cible']/1e3:.0f} k MAD",
+    axis=1,
+).tolist()
+propre_codes = view["propre_code"].tolist()
+
+if propre_options:
+    idx = st.selectbox("Sélectionner une agence propre",
+                       range(len(propre_options)),
+                       format_func=lambda i: propre_options[i])
+    code_pr = propre_codes[idx]
+
+    sub = piv[piv["propre_code"] == code_pr].copy()
+    head = per_propre[per_propre["propre_code"] == code_pr].iloc[0]
+
+    d1, d2, d3, d4 = st.columns(4)
+    d1.metric("Agence propre", head["propre_nom"])
+    d2.metric("Companies servies", int(head["nb_companies"]))
+    d3.metric("Shops rattachés", int(head["nb_shops"]))
+    d4.metric("💰 Dotation cible",
+              f"{head['dotation_cible']/1e3:.0f} k MAD",
+              f"besoin {head['besoin_jour']/1e3:.0f} k / j")
+
+    sub_disp = sub[["societe", "nb_shops", "besoin_jour", "dotation_cible"]].copy()
+    sub_disp["part_%"] = (sub_disp["dotation_cible"]
+                          / sub_disp["dotation_cible"].sum() * 100).round(1)
+    sub_disp["besoin_jour"] = sub_disp["besoin_jour"].apply(
+        lambda x: f"{x:,.0f}".replace(",", " "))
+    sub_disp["dotation_cible"] = sub_disp["dotation_cible"].apply(
+        lambda x: f"{x:,.0f}".replace(",", " "))
+    sub_disp = sub_disp.rename(columns={
+        "societe": "Société", "nb_shops": "Shops",
+        "besoin_jour": "Besoin/j (MAD)",
+        "dotation_cible": "Dotation (MAD)", "part_%": "Part %",
+    })
+    st.dataframe(sub_disp, hide_index=True, use_container_width=True, height=300)
+
+# --- Export Excel ---
+st.divider()
+buf = io.BytesIO()
+with pd.ExcelWriter(buf, engine="openpyxl") as w:
+    view.to_excel(w, sheet_name="Par propre", index=False)
+    piv.to_excel(w, sheet_name="Pivot Propre × Company", index=False)
     pd.DataFrame([
         ["Jours couverture", jours],
         ["Buffer sécurité %", buffer_pct],
         ["Saisonnalité %", saison_pct],
-        ["Multi-shops only", only_multi],
-        ["Banque", b_co],
-        ["DR", ", ".join(dr_sel) or "Toutes"],
-        ["Companies", len(view)],
+        ["Propres actives", len(view)],
+        ["Companies servies", int(view["nb_companies"].sum())],
         ["Besoin/j total (MAD)", float(view["besoin_jour"].sum())],
         ["Dotation cible totale (MAD)", float(view["dotation_cible"].sum())],
     ], columns=["Paramètre", "Valeur"]).to_excel(
         w, sheet_name="Paramètres", index=False)
 
 st.download_button(
-    "📥 Export Excel — dotations Companies",
-    data=buf_co.getvalue(),
-    file_name=f"dotations_companies_j{jours}_b{buffer_pct}_s{saison_pct}.xlsx",
+    "📥 Export Excel — plan CIT complet (Propre × Company)",
+    data=buf.getvalue(),
+    file_name=f"plan_cit_j{jours}_b{buffer_pct}_s{saison_pct}.xlsx",
     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 )
 
-st.divider()
-
-# Agrégation par DR + par Banque
-cA, cB = st.columns(2)
-with cA:
-    st.markdown("**📊 Agrégation par DR**")
-    agg_dr = view.groupby("dr_principal").agg(
-        nb_co=("societe", "count"),
-        nb_shops=("nb_shops", "sum"),
-        besoin=("besoin_jour", "sum"),
-        dotation=("dotation_cible", "sum"),
-    ).reset_index().sort_values("dotation", ascending=False)
-    agg_dr["besoin"] = agg_dr["besoin"].apply(lambda x: f"{x/1e6:.2f} M")
-    agg_dr["dotation"] = agg_dr["dotation"].apply(lambda x: f"{x/1e6:.2f} M")
-    agg_dr = agg_dr.rename(columns={
-        "dr_principal": "DR", "nb_co": "Companies", "nb_shops": "Shops",
-        "besoin": "Besoin/j", "dotation": "Dotation",
-    })
-    st.dataframe(agg_dr, hide_index=True, use_container_width=True)
-
-with cB:
-    st.markdown("**🏦 Agrégation par banque domiciliataire**")
-    agg_b = view.groupby("banque", dropna=False).agg(
-        nb_co=("societe", "count"),
-        nb_shops=("nb_shops", "sum"),
-        besoin=("besoin_jour", "sum"),
-        dotation=("dotation_cible", "sum"),
-    ).reset_index().sort_values("dotation", ascending=False)
-    agg_b["besoin"] = agg_b["besoin"].apply(lambda x: f"{x/1e6:.2f} M")
-    agg_b["dotation"] = agg_b["dotation"].apply(lambda x: f"{x/1e6:.2f} M")
-    agg_b = agg_b.rename(columns={
-        "banque": "Banque", "nb_co": "Companies", "nb_shops": "Shops",
-        "besoin": "Besoin/j", "dotation": "Dotation",
-    })
-    st.dataframe(agg_b, hide_index=True, use_container_width=True)
-
 # ============================================================
-# VUE SECONDAIRE : Propres (plan CIT)
+# VUES SECONDAIRES (collapsed par défaut)
 # ============================================================
-st.divider()
-with st.expander("🏦 Vue secondaire — plan d'alimentation CIT par agence propre",
-                 expanded=False):
-    st.caption("Montant cash que chaque agence propre doit détenir pour servir "
-               "les shops rattachés (≤50 km). Utilisé pour dimensionner le plan CIT.")
+with st.expander("🏢 Vue Companies (négociation bancaire)", expanded=False):
+    st.caption("Besoin cash agrégé au niveau Société. Base de négociation "
+               "banque et tarification CIT au niveau Comex.")
+    dfc = load_co(jours, buffer_pct, saison_pct)
+    actives_co = dfc[dfc["besoin_jour"] > 0]
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Companies", len(dfc), f"{len(actives_co)} actives")
+    c2.metric("Besoin/j total",
+              f"{actives_co['besoin_jour'].sum()/1e6:.1f} M MAD")
+    c3.metric("Dotation totale",
+              f"{actives_co['dotation_cible'].sum()/1e6:.1f} M MAD")
 
-    df = load_propres(jours, buffer_pct, saison_pct)
-    tot = total_reseau(df)
-
-    pc1, pc2, pc3, pc4 = st.columns(4)
-    pc1.metric("Propres actives", tot["nb_propres_actives"],
-               f"{tot['nb_propres_vides']} vides")
-    pc2.metric("Besoin net / jour",
-               f"{tot['total_besoin_jour']/1e6:.1f} M MAD")
-    pc3.metric("💰 Dotation totale",
-               f"{tot['total_dotation']/1e6:.1f} M MAD",
-               f"× {jours} j × +{buffer_pct}%")
-    pc4.metric("Dotation moyenne / propre active",
-               f"{tot['total_dotation']/max(tot['nb_propres_actives'],1)/1e3:.0f} k MAD")
-
-    masquer_vides = st.checkbox("Masquer propres sans franchisés rattachés",
-                                value=True, key="mask_pr")
-    view_pr = df[df["nb_rattaches"] > 0] if masquer_vides else df
-
-    disp_pr = view_pr.copy()
-    disp_pr["besoin_jour"] = disp_pr["besoin_jour"].apply(
+    top = actives_co.head(50).copy()
+    top["besoin_jour"] = top["besoin_jour"].apply(
         lambda x: f"{x:,.0f}".replace(",", " "))
-    disp_pr["dotation_cible"] = disp_pr["dotation_cible"].apply(
+    top["dotation_cible"] = top["dotation_cible"].apply(
         lambda x: f"{x:,.0f}".replace(",", " "))
-    disp_pr = disp_pr.rename(columns={
-        "code": "Code", "nom": "Nom agence", "ville": "Ville", "dr": "DR",
-        "societe": "Société", "nb_rattaches": "Nb shops",
-        "besoin_jour": "Besoin/j (MAD)",
-        "dotation_cible": "Dotation cible (MAD)", "charge_pct": "Charge %",
+    top = top[["societe", "banque", "nb_shops", "nb_shops_nc",
+               "besoin_jour", "dotation_cible"]].rename(columns={
+        "societe": "Société", "banque": "Banque",
+        "nb_shops": "Shops", "nb_shops_nc": "NC",
+        "besoin_jour": "Besoin/j", "dotation_cible": "Dotation",
     })
-    st.dataframe(disp_pr, hide_index=True, use_container_width=True, height=400)
+    st.dataframe(top, hide_index=True, use_container_width=True, height=400)
 
-    buf_pr = io.BytesIO()
-    with pd.ExcelWriter(buf_pr, engine="openpyxl") as w:
-        view_pr.to_excel(w, sheet_name="Dotations Propres", index=False)
-    st.download_button(
-        "📥 Export Excel — plan CIT propres",
-        data=buf_pr.getvalue(),
-        file_name=f"dotations_propres_j{jours}_b{buffer_pct}.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+with st.expander("🏦 Vue Propres (flat — reporting macro)", expanded=False):
+    st.caption("Dotation totale par propre sans décomposition Company.")
+    dfp = load_propres_flat(jours, buffer_pct, saison_pct)
+    tot = total_reseau(dfp)
+    p1, p2, p3 = st.columns(3)
+    p1.metric("Propres actives", tot["nb_propres_actives"])
+    p2.metric("Besoin/j", f"{tot['total_besoin_jour']/1e6:.1f} M MAD")
+    p3.metric("Dotation totale", f"{tot['total_dotation']/1e6:.1f} M MAD")
+    st.dataframe(
+        dfp[dfp["nb_rattaches"] > 0].head(50),
+        hide_index=True, use_container_width=True, height=350,
     )
