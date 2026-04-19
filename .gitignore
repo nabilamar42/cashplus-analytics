@@ -1,0 +1,11 @@
+data/*.db
+data/osrm/
+osrm/
+*.xlsx
+*.xls
+*.csv
+*.docx
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
