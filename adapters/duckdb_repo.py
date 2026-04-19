@@ -20,7 +20,7 @@ class DuckDBRepo:
           banque VARCHAR
         )""")
         # Migration : ajouter is_depot si absent (Phase 3 hub-and-spoke)
-        cols = [r[0] for r in self._con.execute(
+        cols = [r[1] for r in self._con.execute(
             "PRAGMA table_info(agences)").fetchall()]
         if "is_depot" not in cols:
             self._con.execute(
