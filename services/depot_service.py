@@ -39,8 +39,16 @@ def propres_de_ville(repo: DuckDBRepo, ville: str) -> pd.DataFrame:
 
 
 def auto_select_depots(repo: DuckDBRepo,
-                       villes: list[str] | None = None) -> dict:
-    """Sélectionne 1 agence propre par ville (la plus centrale)."""
+                       villes: list[str] | None = None,
+                       n_par_ville: int | dict[str, int] = 1) -> dict:
+    """Sélectionne N agences propres par ville.
+
+    Stratégie pour N>1 : on prend d'abord la propre la plus centrale, puis
+    itérativement celle qui maximise la distance aux dépôts déjà sélectionnés
+    (farthest-point / MaxMin) — répartition géographique équilibrée.
+
+    `n_par_ville` : int (même N pour toutes) ou dict {ville_norm: N}.
+    """
     villes_cible = [_norm(v) for v in (villes or VILLES_DEPOTS_DEFAUT)]
     con = repo.con()
     con.execute("UPDATE agences SET is_depot = false WHERE is_depot = true")
@@ -51,27 +59,50 @@ def auto_select_depots(repo: DuckDBRepo,
     propres["ville_norm"] = propres["ville"].apply(_norm)
     selected = []
     for v in villes_cible:
-        g = propres[propres["ville_norm"] == v]
+        g = propres[propres["ville_norm"] == v].reset_index(drop=True)
         if g.empty:
-            selected.append({"ville": v, "code": None, "nom": None,
-                             "nb_propres_ville": 0})
+            selected.append({"ville": v, "codes": [], "noms": [],
+                             "nb_propres_ville": 0, "cible": 0})
             continue
-        if len(g) == 1:
-            best = g.iloc[0]["code"]
-            r = g.iloc[0]
+        if isinstance(n_par_ville, dict):
+            n_want = max(1, int(n_par_ville.get(v, 1)))
         else:
-            coords = g[["lat", "lon"]].values
-            scores = [sum(haversine_km(la, lo, a, b)
-                          for j, (a, b) in enumerate(coords) if j != i)
-                      for i, (la, lo) in enumerate(coords)]
-            g = g.copy()
-            g["_s"] = scores
-            best = g.loc[g["_s"].idxmin(), "code"]
-            r = g[g["code"] == best].iloc[0]
-        con.execute("UPDATE agences SET is_depot = true WHERE code = ?", [best])
-        selected.append({"ville": v, "code": best, "nom": r["nom"],
-                         "nb_propres_ville": len(g)})
-    return {"villes": selected, "nb_depots": sum(1 for s in selected if s["code"])}
+            n_want = max(1, int(n_par_ville))
+        n_want = min(n_want, len(g))
+
+        coords = g[["lat", "lon"]].values
+        # 1er dépôt : plus central (min somme distances aux autres)
+        if len(g) == 1:
+            picks = [0]
+        else:
+            scores_c = [sum(haversine_km(la, lo, a, b)
+                            for j, (a, b) in enumerate(coords) if j != i)
+                        for i, (la, lo) in enumerate(coords)]
+            picks = [int(scores_c.index(min(scores_c)))]
+            # Itération MaxMin : ajoute la propre la + éloignée des déjà choisies
+            while len(picks) < n_want:
+                best_i, best_d = -1, -1.0
+                for i, (la, lo) in enumerate(coords):
+                    if i in picks:
+                        continue
+                    min_d = min(haversine_km(la, lo, coords[p][0], coords[p][1])
+                                for p in picks)
+                    if min_d > best_d:
+                        best_d, best_i = min_d, i
+                if best_i >= 0:
+                    picks.append(best_i)
+                else:
+                    break
+        codes = [g.iloc[i]["code"] for i in picks]
+        noms = [g.iloc[i]["nom"] for i in picks]
+        for c in codes:
+            con.execute("UPDATE agences SET is_depot = true WHERE code = ?", [c])
+        selected.append({
+            "ville": v, "codes": codes, "noms": noms,
+            "nb_propres_ville": len(g), "cible": n_want,
+        })
+    nb = sum(len(s["codes"]) for s in selected)
+    return {"villes": selected, "nb_depots": nb}
 
 
 def list_depots(repo: DuckDBRepo) -> pd.DataFrame:
@@ -81,19 +112,30 @@ def list_depots(repo: DuckDBRepo) -> pd.DataFrame:
     """).df()
 
 
-def set_depot_manuel(repo: DuckDBRepo, ville: str, new_code: str) -> None:
-    """Override manuel : remplace le dépôt d'une ville par `new_code`."""
+def set_depots_ville(repo: DuckDBRepo, ville: str,
+                     codes: list[str]) -> dict:
+    """Remplace les dépôts d'une ville par exactement les codes fournis.
+
+    Supporte plusieurs dépôts par ville (ex. grandes villes comme Casablanca).
+    """
     con = repo.con()
     v = _norm(ville)
-    # Retire is_depot pour toutes les propres de la ville
-    codes_ville = con.execute(
+    # Retire is_depot pour toutes les propres de cette ville
+    df = con.execute(
         "SELECT code, ville FROM agences WHERE type='Propre'"
     ).df()
-    codes_ville["ville_norm"] = codes_ville["ville"].apply(_norm)
-    to_reset = codes_ville[codes_ville["ville_norm"] == v]["code"].tolist()
+    df["ville_norm"] = df["ville"].apply(_norm)
+    to_reset = df[df["ville_norm"] == v]["code"].tolist()
     for c in to_reset:
         con.execute("UPDATE agences SET is_depot = false WHERE code = ?", [c])
-    con.execute("UPDATE agences SET is_depot = true WHERE code = ?", [new_code])
+    for c in codes:
+        con.execute("UPDATE agences SET is_depot = true WHERE code = ?", [c])
+    return {"ville": v, "nb_depots": len(codes), "codes": codes}
+
+
+def set_depot_manuel(repo: DuckDBRepo, ville: str, new_code: str) -> None:
+    """(Legacy) remplace le dépôt d'une ville par un seul code."""
+    set_depots_ville(repo, ville, [new_code])
 
 
 def _load_propres_full(repo: DuckDBRepo) -> pd.DataFrame:

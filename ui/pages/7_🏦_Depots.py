@@ -25,7 +25,7 @@ from core.depot import (
 )
 from core.dotation import BESOIN_OPERATIONS_PROPRE_DEFAUT
 from services.depot_service import (
-    auto_select_depots, list_depots, set_depot_manuel, network_depots,
+    auto_select_depots, list_depots, set_depots_ville, network_depots,
     propres_de_ville,
 )
 
@@ -82,48 +82,67 @@ with st.sidebar:
 # --- Config dépôts ---
 depots = list_depots(repo)
 
-with st.expander("⚙️ Configuration des dépôts",
-                 expanded=depots.empty):
-    cA, cB = st.columns([2, 1])
-    with cA:
-        st.markdown("**Villes cibles** : " + ", ".join(VILLES_DEPOTS_DEFAUT))
-        if st.button("🎯 Auto-sélection (1 propre la + centrale / ville)",
-                     type="primary"):
-            res = auto_select_depots(repo)
-            st.success(f"✅ {res['nb_depots']} dépôts promus")
+with st.expander("⚙️ Configuration des dépôts", expanded=depots.empty):
+    st.markdown("**Villes cibles** : " + ", ".join(VILLES_DEPOTS_DEFAUT))
+
+    # Auto-sélection avec N paramétrable par ville
+    st.markdown("#### 🎯 Auto-sélection")
+    ac1, ac2, ac3 = st.columns([2, 3, 1])
+    with ac1:
+        n_default = st.number_input("N dépôts par ville (défaut)",
+                                    min_value=1, max_value=10, value=1)
+    with ac2:
+        st.caption("Les grandes villes peuvent avoir plusieurs dépôts. "
+                   "Stratégie : 1ʳᵉ propre la + centrale, puis MaxMin "
+                   "(répartition géographique équilibrée).")
+    with ac3:
+        st.write("")
+        if st.button("🎯 Appliquer", type="primary"):
+            res = auto_select_depots(repo, n_par_ville=int(n_default))
+            st.success(f"✅ {res['nb_depots']} dépôts promus "
+                       f"({int(n_default)}/ville)")
             st.cache_data.clear()
             st.rerun()
-    with cB:
-        st.metric("Dépôts actifs", len(depots))
 
     if not depots.empty:
-        st.markdown("**Override manuel** — remplacer le dépôt d'une ville :")
-        oc1, oc2, oc3 = st.columns([2, 3, 1])
-        with oc1:
-            ville_mod = st.selectbox("Ville",
-                                     sorted(depots["ville"].unique()))
-        with oc2:
-            props_ville = propres_de_ville(repo, ville_mod)
-            propres_options = {
+        st.divider()
+        st.markdown("#### ✋ Override manuel par ville "
+                    "(multi-sélection possible)")
+        depots_par_ville = depots.groupby("ville")["code"].apply(list).to_dict()
+        toutes_villes = sorted(set(depots["ville"].unique()) |
+                               set(VILLES_DEPOTS_DEFAUT))
+        ville_mod = st.selectbox("Ville", toutes_villes,
+                                 index=toutes_villes.index(
+                                     depots.iloc[0]["ville"])
+                                     if not depots.empty else 0)
+        props_ville = propres_de_ville(repo, ville_mod)
+        if props_ville.empty:
+            st.warning(f"Aucune agence propre trouvée pour {ville_mod}.")
+        else:
+            options = {
                 f"{r['nom']} ({r['code']})": r["code"]
                 for _, r in props_ville.iterrows()
             }
-            current_depot = depots[depots["ville"] == ville_mod].iloc[0]["code"]
-            current_label = next((lbl for lbl, c in propres_options.items()
-                                  if c == current_depot), None)
-            pick_label = st.selectbox(
-                "Propre à promouvoir en dépôt",
-                list(propres_options.keys()),
-                index=list(propres_options.keys()).index(current_label)
-                      if current_label else 0,
+            current_codes = depots_par_ville.get(ville_mod, [])
+            current_labels = [lbl for lbl, c in options.items()
+                              if c in current_codes]
+            picks = st.multiselect(
+                f"Dépôts de {ville_mod} "
+                f"({len(props_ville)} propres disponibles)",
+                list(options.keys()),
+                default=current_labels,
             )
-        with oc3:
-            st.write("")
-            st.write("")
-            if st.button("✅ Appliquer"):
-                set_depot_manuel(repo, ville_mod, propres_options[pick_label])
-                st.cache_data.clear()
-                st.rerun()
+            oc1, oc2 = st.columns([1, 4])
+            with oc1:
+                if st.button("✅ Enregistrer les dépôts"):
+                    set_depots_ville(repo, ville_mod,
+                                     [options[p] for p in picks])
+                    st.success(f"✅ {len(picks)} dépôts pour {ville_mod}")
+                    st.cache_data.clear()
+                    st.rerun()
+            with oc2:
+                st.caption(f"Actuellement : {len(current_codes)} dépôt(s). "
+                           f"Coche/décoche pour ajouter ou retirer.")
 
 if depots.empty:
     st.info("Aucun dépôt — lance l'auto-sélection ci-dessus.")
