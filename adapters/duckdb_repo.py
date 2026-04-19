@@ -19,6 +19,12 @@ class DuckDBRepo:
           societe VARCHAR, dr VARCHAR, rr VARCHAR, superviseur VARCHAR,
           banque VARCHAR
         )""")
+        # Migration : ajouter is_depot si absent (Phase 3 hub-and-spoke)
+        cols = [r[0] for r in self._con.execute(
+            "PRAGMA table_info(agences)").fetchall()]
+        if "is_depot" not in cols:
+            self._con.execute(
+                "ALTER TABLE agences ADD COLUMN is_depot BOOLEAN DEFAULT false")
         self._con.execute("""
         CREATE TABLE IF NOT EXISTS volumes (
           shop_id VARCHAR, snapshot_date DATE,
