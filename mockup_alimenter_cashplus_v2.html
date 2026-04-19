@@ -1,0 +1,709 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Cash Plus - Mockup Alimenter mon compte</title>
+  <style>
+    :root{
+      --bg:#f4f1ea;
+      --panel:#ffffff;
+      --panel-soft:#f7fbfa;
+      --text:#2c2c2a;
+      --muted:#7d7a74;
+      --line:#dfeee8;
+      --primary:#0f6e56;
+      --primary-2:#1d9e75;
+      --pill:#e1f5ee;
+      --info-bg:#e6f1fb;
+      --info-text:#0c447c;
+      --warn-bg:#faeeda;
+      --warn-text:#633806;
+      --shadow:0 18px 40px rgba(33, 40, 37, 0.08);
+      --radius-xl:28px;
+      --radius-lg:20px;
+      --radius-md:14px;
+      --radius-sm:10px;
+      --mono:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      --sans:Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    *{box-sizing:border-box}
+    body{
+      margin:0;
+      font-family:var(--sans);
+      background:linear-gradient(180deg,#f7f4ed 0%, #efe9df 100%);
+      color:var(--text);
+      padding:28px;
+    }
+
+    .wrap{
+      max-width:1380px;
+      margin:0 auto;
+    }
+
+    .hero{
+      margin-bottom:22px;
+    }
+
+    .hero h1{
+      margin:0 0 8px;
+      font-size:28px;
+      font-weight:700;
+      letter-spacing:-0.02em;
+    }
+
+    .hero p{
+      margin:0;
+      max-width:840px;
+      color:var(--muted);
+      line-height:1.5;
+      font-size:15px;
+    }
+
+    .grid{
+      display:grid;
+      grid-template-columns:repeat(auto-fit,minmax(240px,1fr));
+      gap:22px;
+    }
+
+    .col-label{
+      display:flex;
+      align-items:center;
+      gap:8px;
+      margin:0 0 10px;
+      color:var(--text);
+      font-size:14px;
+      font-weight:600;
+    }
+
+    .badge{
+      width:22px;
+      height:22px;
+      border-radius:999px;
+      background:var(--primary);
+      color:#fff;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      font-size:11px;
+      font-weight:700;
+      flex:0 0 auto;
+    }
+
+    .phone{
+      background:var(--panel);
+      border-radius:var(--radius-xl);
+      box-shadow:var(--shadow);
+      padding:12px 12px 16px;
+      min-height:700px;
+      border:1px solid rgba(15,110,86,0.06);
+    }
+
+    .topbar{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      padding:2px 4px 10px;
+      font-size:10px;
+      font-weight:700;
+      color:#000;
+    }
+
+    .notch{
+      width:50px;
+      height:12px;
+      border-radius:20px;
+      background:#000;
+    }
+
+    .header{
+      display:flex;
+      align-items:center;
+      gap:10px;
+      margin-bottom:14px;
+      padding:2px;
+    }
+
+    .back{
+      width:30px;
+      height:30px;
+      border-radius:999px;
+      background:#f1efe8;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      flex:0 0 auto;
+    }
+
+    .title{
+      font-size:13px;
+      font-weight:700;
+      line-height:1.25;
+    }
+
+    .subtitle{
+      font-size:10px;
+      color:var(--muted);
+      margin-top:3px;
+      line-height:1.4;
+    }
+
+    .card{
+      background:var(--panel-soft);
+      border:1px solid var(--line);
+      border-radius:var(--radius-md);
+      padding:12px;
+      margin-bottom:10px;
+    }
+
+    .menu-item{
+      display:flex;
+      gap:10px;
+      align-items:flex-start;
+      padding:12px 0;
+      border-bottom:1px solid var(--line);
+    }
+
+    .menu-item:last-child{border-bottom:none}
+
+    .icon{
+      width:34px;
+      height:34px;
+      border-radius:12px;
+      background:var(--pill);
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      color:var(--primary);
+      flex:0 0 auto;
+      font-size:16px;
+    }
+
+    .menu-copy{
+      flex:1;
+      min-width:0;
+    }
+
+    .menu-copy strong{
+      display:block;
+      font-size:12px;
+      line-height:1.35;
+      margin-bottom:2px;
+    }
+
+    .menu-copy span{
+      display:block;
+      font-size:10px;
+      color:var(--muted);
+      line-height:1.35;
+    }
+
+    .arrow{
+      color:var(--muted);
+      font-size:14px;
+      padding-top:6px;
+    }
+
+    .kpis{
+      display:grid;
+      grid-template-columns:repeat(3,1fr);
+      gap:8px;
+      margin-bottom:10px;
+    }
+
+    .kpi{
+      background:#fff;
+      border:1px solid var(--line);
+      border-radius:12px;
+      padding:10px 8px;
+    }
+
+    .kpi .label{
+      font-size:8px;
+      text-transform:uppercase;
+      letter-spacing:.04em;
+      color:var(--muted);
+      margin-bottom:4px;
+    }
+
+    .kpi .value{
+      font-size:10px;
+      font-weight:700;
+      line-height:1.35;
+    }
+
+    .cta{
+      background:var(--primary);
+      color:#fff;
+      border-radius:999px;
+      text-align:center;
+      padding:11px 12px;
+      font-size:12px;
+      font-weight:700;
+      margin-top:8px;
+    }
+
+    .cta-alt{
+      background:#fff;
+      color:var(--primary);
+      border:1px solid var(--primary-2);
+      border-radius:999px;
+      text-align:center;
+      padding:9px 10px;
+      font-size:11px;
+      font-weight:700;
+      margin-top:8px;
+    }
+
+    .actions-2,.actions-3{
+      display:grid;
+      gap:8px;
+      margin-top:8px;
+    }
+
+    .actions-2{grid-template-columns:1fr 1fr}
+    .actions-3{grid-template-columns:1fr 1fr 1fr}
+
+    .banner{
+      border-radius:10px;
+      padding:9px 10px;
+      font-size:10px;
+      line-height:1.45;
+      margin-bottom:10px;
+    }
+
+    .banner strong{
+      display:block;
+      font-size:10px;
+      margin-bottom:2px;
+    }
+
+    .banner.info{
+      background:var(--info-bg);
+      color:var(--info-text);
+      border-left:3px solid #378add;
+    }
+
+    .banner.warn{
+      background:var(--warn-bg);
+      color:var(--warn-text);
+      border-left:3px solid #ba7517;
+    }
+
+    .amount-box{
+      background:#fff;
+      border:1px solid var(--line);
+      border-radius:12px;
+      text-align:center;
+      padding:14px 12px;
+      margin-bottom:10px;
+    }
+
+    .amount{
+      font-size:24px;
+      color:var(--primary);
+      font-weight:700;
+      letter-spacing:-0.03em;
+    }
+
+    .amount small{
+      font-size:12px;
+      color:var(--muted);
+      font-weight:500;
+    }
+
+    .chips{
+      display:flex;
+      flex-wrap:wrap;
+      gap:6px;
+      margin-bottom:10px;
+    }
+
+    .chip{
+      padding:6px 10px;
+      border-radius:999px;
+      background:#f1efe8;
+      font-size:10px;
+      font-weight:700;
+      color:#444441;
+    }
+
+    .chip.active{
+      background:var(--pill);
+      color:var(--primary);
+      border:1px solid var(--primary-2);
+    }
+
+    .label{
+      font-size:9px;
+      text-transform:uppercase;
+      letter-spacing:.05em;
+      color:var(--muted);
+      font-weight:700;
+      margin-bottom:5px;
+    }
+
+    .row{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+    }
+
+    .row + .row{margin-top:6px}
+
+    .mini{
+      font-size:10px;
+      color:var(--muted);
+    }
+
+    .strong{
+      font-size:11px;
+      font-weight:700;
+    }
+
+    .account-box{
+      background:#fff;
+      border:1px solid var(--line);
+      border-radius:12px;
+      padding:12px;
+    }
+
+    .mono{
+      font-family:var(--mono);
+      color:var(--primary);
+      font-size:11px;
+      font-weight:700;
+      letter-spacing:.03em;
+      line-height:1.5;
+      word-break:break-word;
+    }
+
+    .qr{
+      width:104px;
+      height:104px;
+      border-radius:12px;
+      border:1px solid var(--line);
+      background:
+        linear-gradient(90deg,#000 10%,transparent 10%) 0 0/22px 22px,
+        linear-gradient(#000 10%,transparent 10%) 0 0/22px 22px,
+        linear-gradient(90deg,transparent 40%,#000 40% 60%,transparent 60%) 0 0/22px 22px,
+        linear-gradient(transparent 40%,#000 40% 60%,transparent 60%) 0 0/22px 22px,
+        #fff;
+      margin:0 auto 10px;
+    }
+
+    .code{
+      display:inline-block;
+      background:var(--pill);
+      color:var(--primary);
+      border-radius:8px;
+      padding:5px 10px;
+      font-family:var(--mono);
+      font-size:11px;
+      font-weight:700;
+      letter-spacing:.08em;
+    }
+
+    .agency{
+      display:flex;
+      align-items:center;
+      gap:10px;
+      background:var(--panel-soft);
+      border:1px solid var(--line);
+      border-radius:12px;
+      padding:10px;
+    }
+
+    .map-pin{
+      width:32px;
+      height:32px;
+      border-radius:10px;
+      background:var(--pill);
+      color:var(--primary);
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      font-size:15px;
+    }
+
+    .agency .meta{
+      flex:1;
+      min-width:0;
+    }
+
+    .agency .name{
+      font-size:11px;
+      font-weight:700;
+      margin-bottom:2px;
+    }
+
+    .agency .desc{
+      font-size:9.5px;
+      color:var(--muted);
+      line-height:1.35;
+    }
+
+    .agency .link{
+      font-size:10px;
+      color:var(--primary);
+      font-weight:700;
+    }
+
+    .footer-note{
+      text-align:center;
+      color:var(--muted);
+      font-size:12px;
+      margin-top:18px;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="hero">
+      <h1>Mockup Cash Plus - Sous-menus "Alimenter"</h1>
+      <p>Version retravaillée pour rendre chaque parcours plus explicite: intention utilisateur claire, délai visible, frais affichés dès l’entrée et un CTA unique par écran.</p>
+    </div>
+
+    <div class="grid">
+      <div>
+        <div class="col-label"><span class="badge">1</span><span>Menu principal</span></div>
+        <div class="phone">
+          <div class="topbar"><span>21:34</span><div class="notch"></div><span>4G</span></div>
+          <div class="header">
+            <div class="back">+</div>
+            <div>
+              <div class="title">Alimenter mon compte</div>
+              <div class="subtitle">Choisissez comment ajouter de l'argent à votre compte Cash Plus</div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="menu-item">
+              <div class="icon">🏢</div>
+              <div class="menu-copy">
+                <strong>Déposer du cash en agence</strong>
+                <span>Immédiat, en espèces dans une agence Cash Plus</span>
+              </div>
+              <div class="arrow">›</div>
+            </div>
+            <div class="menu-item">
+              <div class="icon">👤</div>
+              <div class="menu-copy">
+                <strong>Recevoir de l'argent d'un proche</strong>
+                <span>Le déposant paie 1%, vous recevez 100% sur votre compte</span>
+              </div>
+              <div class="arrow">›</div>
+            </div>
+            <div class="menu-item">
+              <div class="icon">💳</div>
+              <div class="menu-copy">
+                <strong>Recharger par carte bancaire</strong>
+                <span>Avec une carte d'une autre banque</span>
+              </div>
+              <div class="arrow">›</div>
+            </div>
+            <div class="menu-item">
+              <div class="icon">⚡</div>
+              <div class="menu-copy">
+                <strong>Recevoir un virement instantané</strong>
+                <span>En quelques secondes si la banque émettrice est compatible</span>
+              </div>
+              <div class="arrow">›</div>
+            </div>
+            <div class="menu-item">
+              <div class="icon">🏦</div>
+              <div class="menu-copy">
+                <strong>Recevoir un virement bancaire</strong>
+                <span>Sous 24h à 72h ouvrables</span>
+              </div>
+              <div class="arrow">›</div>
+            </div>
+          </div>
+
+          <div class="cta-alt">Comprendre la différence entre les options</div>
+        </div>
+      </div>
+
+      <div>
+        <div class="col-label"><span class="badge">2</span><span>Recharger par carte</span></div>
+        <div class="phone">
+          <div class="topbar"><span>21:34</span><div class="notch"></div><span>4G</span></div>
+          <div class="header">
+            <div class="back">‹</div>
+            <div>
+              <div class="title">Recharger par carte bancaire</div>
+              <div class="subtitle">Utilisez une carte d'une autre banque pour alimenter votre compte</div>
+            </div>
+          </div>
+
+          <div class="kpis">
+            <div class="kpi"><div class="label">Délai</div><div class="value">Immédiat</div></div>
+            <div class="kpi"><div class="label">Source</div><div class="value">Carte externe</div></div>
+            <div class="kpi"><div class="label">Frais</div><div class="value">Affichés avant paiement</div></div>
+          </div>
+
+          <div class="label">Montant à recharger</div>
+          <div class="amount-box">
+            <div class="amount">1 000 <small>DH</small></div>
+          </div>
+
+          <div class="chips">
+            <div class="chip">500</div>
+            <div class="chip active">1 000</div>
+            <div class="chip">2 000</div>
+            <div class="chip">5 000</div>
+          </div>
+
+          <div class="label">Choisir une carte</div>
+          <div class="card">
+            <div class="row">
+              <div class="strong">Visa •••• 6411</div>
+              <div class="mini">Sélectionnée</div>
+            </div>
+          </div>
+
+          <div class="cta-alt">Utiliser une nouvelle carte</div>
+
+          <div class="card">
+            <div class="row mini"><span>Montant</span><span>1 000,00 DH</span></div>
+            <div class="row mini"><span>Frais carte</span><span>15,00 DH</span></div>
+            <div class="row strong"><span>Total débité</span><span>1 015,00 DH</span></div>
+          </div>
+
+          <div class="cta">Payer 1 015,00 DH</div>
+        </div>
+      </div>
+
+      <div>
+        <div class="col-label"><span class="badge">3</span><span>Virement instantané</span></div>
+        <div class="phone">
+          <div class="topbar"><span>21:34</span><div class="notch"></div><span>4G</span></div>
+          <div class="header">
+            <div class="back">‹</div>
+            <div>
+              <div class="title">Recevoir un virement instantané</div>
+              <div class="subtitle">Partagez votre RIB Cash Plus pour recevoir l'argent en quelques secondes</div>
+            </div>
+          </div>
+
+          <div class="banner info">
+            <strong>Disponible selon la banque émettrice</strong>
+            Si la banque de l'émetteur supporte le virement instantané, l'argent arrive presque immédiatement.
+          </div>
+
+          <div class="kpis">
+            <div class="kpi"><div class="label">Délai</div><div class="value">Quelques secondes</div></div>
+            <div class="kpi"><div class="label">Frais</div><div class="value">Aucun pour vous</div></div>
+            <div class="kpi"><div class="label">Action</div><div class="value">Partager le RIB</div></div>
+          </div>
+
+          <div class="account-box">
+            <div class="row"><span class="mini">Titulaire</span><span class="strong">AMAR N.</span></div>
+            <div style="margin:10px 0">
+              <div class="label">IBAN</div>
+              <div class="mono">MA64 0110 0000 0040 3840 2117</div>
+            </div>
+            <div class="row">
+              <div>
+                <div class="label">BIC</div>
+                <div class="strong" style="font-family:var(--mono)">CSHPMAMC</div>
+              </div>
+              <div>
+                <div class="label">Banque</div>
+                <div class="strong">Cash Plus</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="actions-3">
+            <div class="cta-alt">Copier</div>
+            <div class="cta-alt">Partager</div>
+            <div class="cta-alt">PDF</div>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <div class="col-label"><span class="badge">4</span><span>Dépôt en agence</span></div>
+        <div class="phone">
+          <div class="topbar"><span>21:34</span><div class="notch"></div><span>4G</span></div>
+          <div class="header">
+            <div class="back">‹</div>
+            <div>
+              <div class="title">Déposer du cash en agence</div>
+              <div class="subtitle">Présentez votre code à l'agent et remettez-lui les espèces</div>
+            </div>
+          </div>
+
+          <div class="kpis">
+            <div class="kpi"><div class="label">Délai</div><div class="value">Immédiat</div></div>
+            <div class="kpi"><div class="label">Mode</div><div class="value">Espèces</div></div>
+            <div class="kpi"><div class="label">Lieu</div><div class="value">Agence Cash Plus</div></div>
+          </div>
+
+          <div class="card" style="text-align:center">
+            <div class="qr"></div>
+            <div class="code">AMAR-040384</div>
+          </div>
+
+          <div class="label">Agence la plus proche</div>
+          <div class="agency">
+            <div class="map-pin">📍</div>
+            <div class="meta">
+              <div class="name">Agence Casa Centre</div>
+              <div class="desc">Ouverte · 1,2 km · jusqu'à 22h</div>
+            </div>
+            <div class="link">Itinéraire</div>
+          </div>
+
+          <div class="actions-2">
+            <div class="cta">Voir les agences proches</div>
+            <div class="cta-alt">Préparer mon dépôt</div>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <div class="col-label"><span class="badge">5</span><span>Par un proche</span></div>
+        <div class="phone">
+          <div class="topbar"><span>21:34</span><div class="notch"></div><span>4G</span></div>
+          <div class="header">
+            <div class="back">‹</div>
+            <div>
+              <div class="title">Recevoir de l'argent d'un proche</div>
+              <div class="subtitle">Partagez un code pour qu'une autre personne dépose le cash à votre place</div>
+            </div>
+          </div>
+
+          <div class="banner warn">
+            <strong>1% de frais pour le déposant</strong>
+            Pour 500 DH déposés, le tiers paie 5 DH. Vous recevez bien 500 DH sur votre compte.
+          </div>
+
+          <div class="label">Montant attendu (optionnel)</div>
+          <div class="amount-box">
+            <div class="amount">500 <small>DH</small></div>
+          </div>
+
+          <div class="card" style="text-align:center">
+            <div class="qr" style="width:90px;height:90px"></div>
+            <div class="code">AMAR-040384</div>
+          </div>
+
+          <div class="actions-3">
+            <div class="cta-alt">WhatsApp</div>
+            <div class="cta-alt">SMS</div>
+            <div class="cta-alt">Autre</div>
+          </div>
+
+          <div class="cta">Partager mes informations</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="footer-note">Fichier de démonstration standalone à ouvrir dans un navigateur pour revue produit ou partage interne.</div>
+  </div>
+</body>
+</html>

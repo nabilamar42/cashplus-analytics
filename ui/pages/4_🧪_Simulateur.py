@@ -8,6 +8,7 @@ sys.path.insert(0, str(ROOT))
 
 import streamlit as st
 import folium
+from folium.plugins import MarkerCluster
 from streamlit_folium import st_folium
 import pandas as pd
 
@@ -78,21 +79,117 @@ with col_form:
         st.session_state["sim_result"] = res
         st.session_state["sim_ville"] = ville_lbl
 
+    st.divider()
+    st.markdown("**Affichage carte**")
+    show_nc = st.checkbox("🔴 Shops NC (concentrations)", value=True)
+    show_conf = st.checkbox("🟢 Shops conformes", value=False)
+    show_propres = st.checkbox("🔵 Agences propres", value=True)
+    cluster_nc = st.checkbox("Cluster les shops", value=True,
+                             help="Regroupe les markers proches pour lisibilité")
+    filtre_bmce = st.checkbox("BMCE uniquement (priorité)", value=False)
+
+# --- Charger les shops avec leur statut conformité + banque ---
+con = repo.con()
+shops = con.execute("""
+  SELECT a.code, a.nom, a.ville, a.dr, a.banque, a.lat, a.lon,
+         COALESCE(c.conforme, false) AS conforme,
+         c.distance_km
+  FROM agences a
+  LEFT JOIN conformite c ON c.code_franchise = a.code
+  WHERE a.type = 'Franchisé' AND a.lat IS NOT NULL
+""").df()
+if filtre_bmce:
+    shops = shops[shops["banque"] == "BMCE"]
+nc = shops[shops["conforme"] == False]
+cf = shops[shops["conforme"] == True]
+
 with col_map:
-    m = folium.Map(location=[lat, lon], zoom_start=8, tiles="cartodbpositron")
-    # Propres existantes
-    con = repo.con()
-    propres = con.execute(
-        "SELECT nom, ville, lat, lon FROM agences WHERE type='Propre'"
-    ).fetchall()
-    for nom, v, la, lo in propres:
-        folium.CircleMarker([la, lo], radius=3, color="#1f77b4",
-                            fill=True, fill_opacity=0.5,
-                            tooltip=f"{nom} — {v}").add_to(m)
-    # Marker candidat
+    m = folium.Map(location=[lat, lon], zoom_start=7, tiles="cartodbpositron")
+
+    # --- Shops NC (concentrations) ---
+    if show_nc and not nc.empty:
+        target_nc = (MarkerCluster(name=f"Shops NC ({len(nc)})").add_to(m)
+                     if cluster_nc else folium.FeatureGroup(
+                         name=f"Shops NC ({len(nc)})").add_to(m))
+        for _, r in nc.iterrows():
+            popup = (f"<b>❌ {r['nom']}</b><br>"
+                     f"{r['ville']} — {r['dr']}<br>"
+                     f"Banque : <b>{r['banque'] or '—'}</b><br>"
+                     f"Distance à la + proche propre : "
+                     f"{r['distance_km']:.0f} km"
+                     if pd.notna(r['distance_km']) else "")
+            col_nc = "#e41a1c" if r["banque"] == "BMCE" else "#d62728"
+            folium.CircleMarker(
+                [r["lat"], r["lon"]], radius=4,
+                color=col_nc, weight=1, fill=True,
+                fill_color=col_nc, fill_opacity=0.75,
+                popup=folium.Popup(popup, max_width=280),
+                tooltip=f"❌ {r['nom']} ({r['banque'] or '—'}, "
+                        f"{r['distance_km']:.0f} km)" if pd.notna(r['distance_km'])
+                        else r['nom'],
+            ).add_to(target_nc)
+
+    # --- Shops conformes ---
+    if show_conf and not cf.empty:
+        target_cf = (MarkerCluster(name=f"Shops conformes ({len(cf)})").add_to(m)
+                     if cluster_nc else folium.FeatureGroup(
+                         name=f"Shops conformes ({len(cf)})").add_to(m))
+        for _, r in cf.iterrows():
+            folium.CircleMarker(
+                [r["lat"], r["lon"]], radius=3,
+                color="#2ca02c", weight=1, fill=True,
+                fill_color="#2ca02c", fill_opacity=0.55,
+                tooltip=f"✅ {r['nom']}",
+            ).add_to(target_cf)
+
+    # --- Propres existantes ---
+    if show_propres:
+        pr = con.execute(
+            "SELECT nom, ville, lat, lon FROM agences WHERE type='Propre'"
+        ).fetchall()
+        pr_grp = folium.FeatureGroup(name=f"Agences propres ({len(pr)})").add_to(m)
+        for nom, v, la, lo in pr:
+            if la is None or lo is None:
+                continue
+            folium.CircleMarker([la, lo], radius=5, color="#1f77b4", weight=2,
+                                fill=True, fill_color="#1f77b4",
+                                fill_opacity=0.7,
+                                tooltip=f"🏦 {nom} — {v}").add_to(pr_grp)
+
+    # --- Rayon de couverture du candidat (50 km) ---
+    folium.Circle(
+        location=[lat, lon], radius=50 * 1000,
+        color="#ff7f0e", weight=2, fill=True, fill_opacity=0.08,
+        tooltip="Rayon 50 km (seuil conformité)",
+    ).add_to(m)
+
+    # --- Marker candidat ---
     folium.Marker([lat, lon], icon=folium.Icon(color="red", icon="star"),
-                  tooltip=f"Candidat — {ville_lbl}").add_to(m)
-    out = st_folium(m, width=None, height=500, returned_objects=["last_clicked"])
+                  tooltip=f"⭐ Candidat — {ville_lbl}",
+                  popup=f"<b>Candidat</b><br>{ville_lbl}<br>"
+                        f"{lat:.4f}, {lon:.4f}").add_to(m)
+
+    folium.LayerControl(collapsed=False).add_to(m)
+
+    # Légende
+    legend = f"""
+    <div style='position:fixed; bottom:20px; left:20px; z-index:9999;
+                background:white; padding:8px 12px; border:1px solid #999;
+                border-radius:6px; font-size:12px'>
+      <b>Légende</b><br>
+      ❌ <span style='color:#d62728'>●</span> Shop NC<br>
+      ✅ <span style='color:#2ca02c'>●</span> Shop conforme<br>
+      🏦 <span style='color:#1f77b4'>●</span> Agence propre<br>
+      ⭐ Candidat ouverture<br>
+      <span style='color:#ff7f0e'>○</span> Rayon 50 km
+    </div>
+    """
+    m.get_root().html.add_child(folium.Element(legend))
+
+    st.caption(f"📊 Visible : {len(nc) if show_nc else 0} NC | "
+               f"{len(cf) if show_conf else 0} conformes")
+
+    out = st_folium(m, width=None, height=600, returned_objects=["last_clicked"])
     if out and out.get("last_clicked"):
         st.session_state["sim_lat"] = out["last_clicked"]["lat"]
         st.session_state["sim_lon"] = out["last_clicked"]["lng"]
